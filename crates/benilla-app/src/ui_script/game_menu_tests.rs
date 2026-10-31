@@ -27,6 +27,7 @@ fn harness_with(extra: &[&str]) -> UiScript {
         r"Interface\FrameXML\UIPanelTemplates.xml",
         r"Interface\FrameXML\GameMenuFrame.xml",
         "Interface\\FrameXML\\StaticPopup.xml",
+        "ScrollTemplates.xml",
         "GameMenuAdapters.xml",
     ];
     for file in super::test_ui::production_order(&[MENU, extra]) {

@@ -78,6 +78,7 @@
     <Script><![CDATA[
         -- ── Strings ── a 1.12 GlobalStrings global, or the fallback for a harness without them.
         function BenillaKeyBindings_String(name, fallback)
+            if BenillaUIString then fallback = BenillaUIString(fallback) end
             local s = getglobal(name)
             if s then return s end
             return fallback
@@ -476,7 +477,7 @@
         }
         -- Reset To Default confirms, as the era's does; our string, since 1.12 has none.
         StaticPopupDialogs["BENILLA_CONFIRM_RESET_KEYBINDINGS"] = {
-            text = "Are you sure you want to reset all keybindings to their defaults?",
+            text = BenillaUIString("Are you sure you want to reset all keybindings to their defaults?"),
             button1 = BenillaKeyBindings_String("OKAY", "Okay"),
             button2 = BenillaKeyBindings_String("CANCEL", "Cancel"),
             OnAccept = function()

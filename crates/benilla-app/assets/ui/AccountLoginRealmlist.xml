@@ -7,7 +7,7 @@
     <Script>
         GlueDialogTypes["BENILLA_REALMLIST"] = {
             -- The realmList CVar's registered help text.
-            text = "Address of realm list server",
+            text = GetLocale() == "zhCN" and "服务器列表地址" or "Address of realm list server",
             button1 = TEXT(OKAY),
             button2 = TEXT(CANCEL),
             hasEditBox = 1,
@@ -82,6 +82,7 @@
             PlaySound("gsLoginNewAccount");
             if ( BENILLA_REALMLIST_PINNED ) then
                 GlueDialog_Show("BENILLA_REALMLIST_PINNED", format(
+                    GetLocale() == "zhCN" and "本次启动已指定服务器，当前地址为 %s。" or
                     "$WOW_HOST is set for this session, so the realmlist is fixed at %s.",
                     BENILLA_REALMLIST or ""));
             else
@@ -114,6 +115,9 @@
             </Layer>
         </Layers>
         <Scripts>
+            <OnLoad>
+                if GetLocale() == "zhCN" then this:SetText("服务器地址") end
+            </OnLoad>
             <OnClick>
                 BenillaRealmlist_OnClick();
             </OnClick>

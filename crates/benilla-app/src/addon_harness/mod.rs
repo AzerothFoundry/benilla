@@ -140,6 +140,7 @@ pub fn survey(root: &Path) -> Vec<AddonReport> {
 /// API answering for the whole installed set.
 fn stock_vm(root: &Path, registry: &[benilla_ui::script::AddOnInfo]) -> Result<UiScript, String> {
     let mut script = UiScript::new().map_err(|e| e.to_string())?;
+    script.set_locale(crate::ui_script::client_locale().index());
     // A time bound, so one non-terminating addon cannot stall the survey: about 50x the heaviest
     // corpus addon (Enchantrix, 4M instructions), so a runaway reports in about a second.
     script.set_instruction_budget(ADDON_INSTRUCTION_BUDGET);
