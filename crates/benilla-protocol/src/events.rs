@@ -185,6 +185,8 @@ pub enum SessionEvent {
     /// abandon generation of the attempt that dialed it, which a Cancel or a disconnect since has
     /// moved past (the reference drops the socket there, `0x46befd`, `0x46d360`).
     WorldAuthenticated {
+        /// The authentication reply's billing words, available before the character screen.
+        billing: crate::messages::Billing,
         realm: crate::RealmInfo,
         epoch: u64,
         generation: u64,

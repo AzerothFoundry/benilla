@@ -219,10 +219,15 @@ pub(super) fn feed_ui_input(
     mut host: crate::script_calls::InputHost,
     mut world_frame: crate::bindings::WorldFrameBindings,
     mut walk: ResMut<RecordWalk>,
+    mut ime: Local<super::VmMemo<super::ime::Composition>>,
 ) {
     let (keys, capture, clipboard) = (&kbd.0, &mut kbd.1, &mut kbd.2);
     // The frame's first run: what the frame's records write starts clear.
     let first = !std::mem::replace(&mut walk.begun, true);
+    let ime = ime.get_for(script.as_deref());
+    if first {
+        ime.begin_frame();
+    }
     let in_world = state
         .as_ref()
         .is_some_and(|s| *s.get() == crate::client_state::ClientState::InWorld);
@@ -398,6 +403,13 @@ pub(super) fn feed_ui_input(
                 }
                 // The walk above was the move's handler.
                 super::Record::Move => {}
+                super::Record::Ime(event) => {
+                    if !egui_keyboard {
+                        ime.dispatch(script, event);
+                    }
+                    capture.typing = script.has_keyboard_focus() || egui_keyboard;
+                    leg = false;
+                }
                 super::Record::Wheel { up } => {
                     let mut slot = WorldSlot {
                         frame: &mut world_frame,
@@ -429,7 +441,11 @@ pub(super) fn feed_ui_input(
                     // and the characters go to `char_input`, a walk of its own. A repeat goes to
                     // the frame that took the press instead (`0x766070`), a release likewise
                     // (`0x765fd0`).
-                    let walk = if reaches_ui(ev, egui_keyboard) {
+                    let walk = if !egui_keyboard && ime.consumes(script, ev) {
+                        capture.typing = true;
+                        capture.consumed.push(ev.key_code);
+                        KeyWalk::Box
+                    } else if reaches_ui(ev, egui_keyboard) {
                         feed_key(
                             script,
                             capture,
@@ -548,7 +564,7 @@ fn world_frame_leg(
         super::Record::Button { button, state } => {
             world_frame.button(script, *button, *state, r.mods, reach)
         }
-        super::Record::Move => {}
+        super::Record::Move | super::Record::Ime(_) => {}
         super::Record::Wheel { up } => world_frame.wheel(script, r.mods, *up),
     }
 }

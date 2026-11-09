@@ -278,6 +278,7 @@ fn right_press(world: &mut World) {
 /// A right press, stopped ahead of its binding (`0x483c93`): the world frame's hook
 /// ([`right_press`]) when the world frame took it.
 pub(crate) fn right_press_hook(world: &mut World, over_ui: bool) {
+    super::go_trace::line(format_args!("rightPress overUi={over_ui}"));
     if world_press(world, over_ui) {
         right_press(world);
     }

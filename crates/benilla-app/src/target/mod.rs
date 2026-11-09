@@ -35,6 +35,8 @@ mod front;
 mod front_tests;
 #[cfg(test)]
 mod gate_tests;
+mod go_metadata;
+pub(crate) mod go_trace;
 mod highlight;
 pub(crate) mod hover;
 mod live;

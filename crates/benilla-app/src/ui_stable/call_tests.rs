@@ -125,6 +125,133 @@ fn lines(commands: &[ClientCommand]) -> Vec<String> {
     commands.iter().map(|c| format!("{c:?}")).collect()
 }
 
+/// PetStable.lua:164 concatenates the current pet's family whenever GetPetIcon is truthy.
+/// A bar can arrive before SUMMON, or outlive it; its cached guid must not supply the icon.
+#[test]
+fn the_stable_icon_follows_the_current_pet_not_the_action_bar() {
+    const PET: u64 = 0xF140_0000_0000_0099;
+    let mut s = client(0);
+    let world = s.app.world_mut();
+    let pet = world
+        .spawn((
+            crate::net::Guid(PET),
+            crate::net::ObjectStore(
+                ObjectFields::from_pairs(&[(2, 0x9), (3, 1_126), (22, 10), (34, 10)])
+                    .into_created(ObjectType::Unit),
+            ),
+        ))
+        .id();
+    world
+        .resource_mut::<crate::net::GuidIndex>()
+        .0
+        .insert(PET, pet);
+    world
+        .resource_mut::<crate::ui_pet::PetBar>()
+        .spells
+        .pet_guid = PET;
+    run(
+        &mut s,
+        "assert(not UnitExists('pet')); assert(GetPetIcon() == nil)",
+    );
+
+    let set_pet = |s: &mut Stable, guid: u64| {
+        let world = s.app.world_mut();
+        let me = world.resource::<crate::net::GuidIndex>().0[&ME];
+        world
+            .get_mut::<crate::net::ObjectStore>(me)
+            .unwrap()
+            .0
+            .merge(ObjectFields::from_pairs(&[
+                (SUMMON, guid as u32),
+                (SUMMON + 1, (guid >> 32) as u32),
+            ]));
+    };
+    set_pet(&mut s, PET);
+    run(
+        &mut s,
+        "assert(GetPetIcon()); assert(UnitCreatureFamily('pet') .. '' == 'Boar')",
+    );
+    // The current unit can be present before the action bar, too.
+    s.app
+        .world_mut()
+        .resource_mut::<crate::ui_pet::PetBar>()
+        .spells
+        .pet_guid = 0;
+    run(
+        &mut s,
+        "assert(GetPetIcon()); assert(UnitCreatureFamily('pet') .. '' == 'Boar')",
+    );
+    // CHARM takes precedence over SUMMON even when the old bar still names the boar.
+    const IMP: u64 = PET + 1;
+    let world = s.app.world_mut();
+    let boar = world
+        .resource::<crate::ui_pet_stats::PetFamilyTables>()
+        .families
+        .get(5)
+        .unwrap()
+        .clone();
+    let mut imp = boar.clone();
+    imp.name = "Imp".into();
+    imp.icon = "Interface\\Icons\\Spell_Shadow_SummonImp".into();
+    world.insert_resource(crate::ui_pet_stats::PetFamilyTables {
+        families: benilla_formats::CreatureFamilies::from_rows([(5, boar), (23, imp)]),
+        foods: Default::default(),
+    });
+    world
+        .resource_mut::<crate::names::NameCache>()
+        .insert_creature(
+            416,
+            Some(crate::names::CreatureRecord {
+                name: "Imp".into(),
+                subname: None,
+                creature_type: 3,
+                pet_family: 23,
+                rank: 0,
+                type_flags: 0,
+                pet_spell_list: 0,
+                civilian: false,
+                racial_leader: false,
+                display_id: 4449,
+            }),
+        );
+    let imp = world
+        .spawn((
+            crate::net::Guid(IMP),
+            crate::net::ObjectStore(
+                ObjectFields::from_pairs(&[(2, 0x9), (3, 416), (34, 10)])
+                    .into_created(ObjectType::Unit),
+            ),
+        ))
+        .id();
+    world
+        .resource_mut::<crate::net::GuidIndex>()
+        .0
+        .insert(IMP, imp);
+    world
+        .resource_mut::<crate::ui_pet::PetBar>()
+        .spells
+        .pet_guid = PET;
+    let me = world.resource::<crate::net::GuidIndex>().0[&ME];
+    world
+        .get_mut::<crate::net::ObjectStore>(me)
+        .unwrap()
+        .0
+        .merge(ObjectFields::from_pairs(&[
+            (6, IMP as u32),
+            (7, (IMP >> 32) as u32),
+        ]));
+    run(&mut s, "assert(UnitCreatureFamily('pet') == 'Imp'); assert(GetPetIcon() == 'Interface\\\\Icons\\\\Spell_Shadow_SummonImp')");
+    s.app
+        .world_mut()
+        .get_mut::<crate::net::ObjectStore>(me)
+        .unwrap()
+        .0
+        .merge(ObjectFields::from_pairs(&[(6, 0), (7, 0)]));
+    run(&mut s, "assert(UnitCreatureFamily('pet') == 'Boar'); assert(GetPetIcon() == 'Interface\\\\Icons\\\\Ability_Hunter_Pet_Boar')");
+    set_pet(&mut s, 0);
+    run(&mut s, "assert(GetPetIcon() == nil)");
+}
+
 /// Each stable request is out when its call returns, before any drain runs.
 #[test]
 fn the_stable_verbs_send_inside_their_calls() {

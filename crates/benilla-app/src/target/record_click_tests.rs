@@ -513,8 +513,13 @@ fn chest(app: &mut App, frames: usize) -> Entity {
         *world.get::<Transform>(me).expect("our body"),
         *world.get::<GlobalTransform>(me).expect("our body"),
     );
+    // A usable fixture has received its confirmed lockless template.
+    world
+        .resource_mut::<crate::go_templates::GameObjectTemplates>()
+        .insert(77, 3, "Chest".into(), &[0; 24]);
     let store = crate::net::ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[
         (2, 0x21),
+        (benilla_protocol::field::FIELD_OBJECT_ENTRY, 77),
         (21, 3),
     ]));
     let chest = world

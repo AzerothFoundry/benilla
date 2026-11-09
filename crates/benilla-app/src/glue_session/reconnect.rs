@@ -96,6 +96,7 @@ mod tests {
         });
         app.update();
         app.world_mut().write_message(WorldAuthMessage {
+            billing: Default::default(),
             realm: realm("Beta"),
             epoch: 2,
             generation: 0,

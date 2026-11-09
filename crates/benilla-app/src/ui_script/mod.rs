@@ -23,6 +23,7 @@ pub(crate) mod glue_create;
 /// `CGlueMgr`'s screen states over benilla's login, for the stock glue screens.
 pub(crate) mod glue_mgr;
 pub(crate) mod glue_scene;
+mod ime;
 mod input;
 mod movie;
 pub(crate) mod raise_origin;
@@ -568,6 +569,7 @@ impl Plugin for UiScriptPlugin {
             // records start from where the pointer is.
             .add_systems(Last, records::note_frame_end_cursor)
             .init_resource::<input::RecordWalk>()
+            .add_systems(Last, ime::sync_window)
             .add_systems(
                 Update,
                 input::dispatch_input_records

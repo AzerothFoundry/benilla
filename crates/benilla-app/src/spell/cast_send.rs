@@ -313,6 +313,13 @@ fn refuse(
     net: &NetCommands,
     fail: CastFail,
 ) {
+    crate::target::go_trace::spell_line(
+        fail.spell_id,
+        format_args!(
+            "castLocalRefusal spell={} reason={:#x}",
+            fail.spell_id, fail.reason
+        ),
+    );
     let reaches = reaches_tail(&fail, spells, items, net);
     core.report(fail, false, reaches);
 }
@@ -1112,6 +1119,13 @@ fn send_spell_cast(
     // Where the attempt leaves its send when it reaches `SendCast`'s entry.
     sent: &mut Option<CastStage>,
 ) {
+    crate::target::go_trace::spell_line(
+        spell_id,
+        format_args!(
+            "castAttempt spell={spell_id} boundGO={bound_object:?} slot={:?}",
+            core.slot().map(Inflight::spell_id)
+        ),
+    );
     // A refusal through the reporter, then the attempt's `xor al,al` exit.
     macro_rules! refuse {
         ($fail:expr) => {{
@@ -1145,6 +1159,10 @@ fn send_spell_cast(
     // line, whether it is cast, queued on the next swing (1.12 has no re-press-to-unqueue) or
     // awaiting its click, ahead of the IsTargeting leg.
     if core.slot().map(Inflight::spell_id) == Some(spell_id) {
+        crate::target::go_trace::spell_line(
+            spell_id,
+            format_args!("castSuppressed sameSpellInFlight spell={spell_id}"),
+        );
         debug!("ui_action: cast {spell_id} suppressed — already in flight");
         return;
     }

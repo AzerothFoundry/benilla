@@ -466,7 +466,8 @@ fn every_archive_path_a_shipped_lua_chunk_names_survives_its_own_escaping() {
     );
 }
 
-/// Every shipped `text=` answers against the real `GlobalStrings.lua`: `text=` is a lookup
+/// Every shipped `text=` answers against the real `GlobalStrings.lua` and the layer's dictionary:
+/// `text=` is a lookup
 /// (`FrameScript_GetText`, `0x703bf0`) that shows the raw attribute only on a miss (`0x778c07`).
 /// A key-shaped value must resolve, or it shows its own key; a literal must not collide with a
 /// global, or the lookup swaps in that string.
@@ -480,6 +481,8 @@ fn every_shipped_text_attribute_answers_against_the_real_global_strings() {
     let mut s = benilla_ui::script::UiScript::new().expect("VM");
     s.keep_calls();
     s.run(&String::from_utf8_lossy(&src)).expect("runs clean");
+    // The production layer seats its own localized labels before any consumer XML.
+    super::test_ui::load_ui(&s, "ScrollTemplates.xml");
 
     // The loader's key-shape predicate, restated because it is private.
     let key_shaped = |v: &str| {

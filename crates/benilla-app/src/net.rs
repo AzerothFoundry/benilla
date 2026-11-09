@@ -2346,6 +2346,7 @@ pub(crate) struct CharListMessage {
 /// thread is at the character park (`SMSG_AUTH_RESPONSE` success, `0x5ab2b8`).
 #[derive(Message)]
 pub(crate) struct WorldAuthMessage {
+    pub(crate) billing: benilla_protocol::messages::Billing,
     pub(crate) realm: benilla_protocol::RealmInfo,
     /// This world session's number, counted per process: what its roster replies carry.
     pub(crate) epoch: u64,

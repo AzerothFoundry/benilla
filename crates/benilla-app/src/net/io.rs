@@ -829,6 +829,7 @@ fn world(
         }
         if events_tx
             .send(SessionEvent::WorldAuthenticated {
+                billing: session.billing(),
                 realm: realm.clone(),
                 epoch,
                 generation,
@@ -1699,14 +1700,15 @@ pub(super) fn writer_loop(
                     ClientCommand::SetWatchedFaction { rep_list_id } => {
                         w.set_watched_faction(rep_list_id)
                     }
-                    ClientCommand::GameObjUse { guid } => w.gameobj_use(guid),
+                    ClientCommand::GameObjUse { guid } => { crate::target::go_trace::watch_object(guid);let r=w.gameobj_use(guid);crate::target::go_trace::line(format_args!("wire GameObjUse guid={guid:#x} writeOk={}",r.is_ok()));r },
                     ClientCommand::AreaTrigger { trigger_id } => w.area_trigger(trigger_id),
                     ClientCommand::GameObjectQuery { entry, guid } => w.gameobject_query(entry, guid),
                     ClientCommand::PageTextQuery { page_id, guid } => {
                         w.page_text_query(page_id, guid)
                     }
                     ClientCommand::CastSpellGameObject { spell_id, go_guid } => {
-                        w.cast_spell_gameobject(spell_id, go_guid)
+                        let r=w.cast_spell_gameobject(spell_id, go_guid);
+                        crate::target::go_trace::spell_line(spell_id,format_args!("wire CastSpell spell={spell_id} guid={go_guid:#x} writeOk={}",r.is_ok()));r
                     }
                     ClientCommand::CastSpellItem {
                         spell_id,

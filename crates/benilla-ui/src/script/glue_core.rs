@@ -299,6 +299,8 @@ pub trait GlueHost {
     /// The realm type of the realm selected this process (`0x5ab9a0`: `[0xc28134]`, the record at
     /// `0xc27fb8`), which `GetServerName` looks up.
     fn selected_realm_type(&self) -> Option<u32>;
+    /// ClientServices billing words: remaining minutes, plan flags and rested minutes.
+    fn billing(&self) -> (u32, u8, u32);
 }
 
 /// The `ClientServices` status keys (`0x85cae8`, 83 entries), the `ResponseCodes` the world
@@ -803,10 +805,44 @@ pub(super) fn global_text(lua: &Lua, key: &str) -> String {
     }
 }
 
+/// The connection's billing words, zero-initialized before a host/session exists.
+fn billing(lua: &Lua) -> (u32, u8, u32) {
+    let model = lua.app_data_ref::<Model>().expect("model app_data");
+    model.glue.host.as_ref().map_or((0, 0, 0), |h| h.billing())
+}
+
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // `Screenshot` (`0x46d3d0`): the in-game verb's capture ask, answered with the glue's events.
     super::screenshot::install(lua)?;
     let g = lua.globals();
+
+    // ClientServices' authentication billing group, not account/GM status: these are
+    // CharacterSelect.lua's China/Korea branch (0x46dc40, 0x46dbf0, 0x46dcf0).
+    g.set(
+        "GetBillingPlan",
+        lua.create_function(|lua, ()| {
+            let (_, flags, _) = billing(lua);
+            let plan = match flags & 0x16 {
+                2 => 1,
+                4 => 2,
+                0 => 3,
+                0x10 => 4,
+                _ => 0,
+            };
+            Ok((plan, (flags >> 5) & 1, (flags >> 3) & 1))
+        })?,
+    )?;
+    g.set(
+        "GetBillingTimeRemaining",
+        lua.create_function(|lua, ()| {
+            let (remaining, flags, _) = billing(lua);
+            Ok(if flags & 2 != 0 { 0 } else { remaining })
+        })?,
+    )?;
+    g.set(
+        "GetBillingTimeRested",
+        lua.create_function(|lua, ()| Ok(billing(lua).2))?,
+    )?;
 
     // Both arguments `is-number-or-string` (`0x46d168`, `0x46d178`), else the usage error
     // (`0x837cbc`); then `CGlueMgr::Login(account, password)` (`0x46d1a0`), whose first two tests
@@ -1157,6 +1193,7 @@ mod tests {
         replies: std::cell::RefCell<Vec<(&'static str, Vec<GlueSignal>)>>,
         connected: std::cell::Cell<bool>,
         selected: std::cell::Cell<Option<u32>>,
+        billing: std::cell::Cell<(u32, u8, u32)>,
     }
 
     impl GlueHost for FakeHost {
@@ -1183,6 +1220,10 @@ mod tests {
         fn selected_realm_type(&self) -> Option<u32> {
             self.selected.get()
         }
+
+        fn billing(&self) -> (u32, u8, u32) {
+            self.billing.get()
+        }
     }
 
     fn seated(replies: Vec<(&'static str, Vec<GlueSignal>)>) -> (UiScript, std::rc::Rc<FakeHost>) {
@@ -1191,6 +1232,45 @@ mod tests {
         *host.replies.borrow_mut() = replies;
         s.set_glue_host(host.clone());
         (s, host)
+    }
+
+    #[test]
+    fn glue_billing_reads_the_authenticated_plan_and_unsigned_minutes() {
+        let (s, host) = seated(Vec::new());
+        // Reference plan branches, including an invalid flag mix and IGR/fallback.
+        for (flags, expected, remaining) in [
+            (0x00, (3, 0, 0), u32::MAX),
+            (0x02, (1, 0, 0), 0),
+            (0x04, (2, 0, 0), u32::MAX),
+            (0x10, (4, 0, 0), u32::MAX),
+            (0x06, (0, 0, 0), 0),
+            (0x28, (3, 1, 1), u32::MAX),
+        ] {
+            host.billing.set((u32::MAX, flags, u32::MAX));
+            assert_eq!(
+                s.eval::<(u32, u8, u8)>("return GetBillingPlan()").unwrap(),
+                expected
+            );
+            assert_eq!(
+                s.eval::<u32>("return GetBillingTimeRemaining()").unwrap(),
+                remaining
+            );
+            assert_eq!(
+                s.eval::<u32>("return GetBillingTimeRested()").unwrap(),
+                u32::MAX
+            );
+        }
+        // The same VM reads the next session's values, without a stale cached plan.
+        host.billing.set((120, 0x28, 60));
+        assert_eq!(
+            s.eval::<(u32, u32, u32)>("return GetBillingPlan()")
+                .unwrap(),
+            (3, 1, 1)
+        );
+        assert_eq!(
+            s.eval::<u32>("return GetBillingTimeRemaining()").unwrap(),
+            120
+        );
     }
 
     /// `sscanf`'s `%d` accumulates in 32 bits that wrap, after C's blanks only.

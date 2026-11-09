@@ -166,11 +166,13 @@ fn on_login_edge(In(ev): In<SessionEvent>, mut e: Edges) {
     match ev {
         SessionEvent::LoginStage { stage } => login_stage(stage, &mut e.login_stages),
         SessionEvent::WorldAuthenticated {
+            billing,
             realm,
             epoch,
             generation,
         } => {
             e.world_auth.write(WorldAuthMessage {
+                billing,
                 realm,
                 epoch,
                 generation,
