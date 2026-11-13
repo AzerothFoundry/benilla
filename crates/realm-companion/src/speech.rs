@@ -3,11 +3,11 @@ use bevy::prelude::*;
 use benilla_app::companion_renderer::CompanionLocalGesture;
 #[derive(Component)]struct Bubble;
 #[derive(Component)]struct Line;
+#[derive(Component)]struct SpeechCamera;
 pub fn install(app:&mut App){app.add_systems(Startup,setup).add_systems(Update,update);}
 fn setup(mut c:Commands,assets:Res<AssetServer>,ui:Res<crate::UiState>){
- // Clear the entire native surface before the smaller 3D viewport is composited.
- c.spawn((Camera2d,Camera{order:-100,clear_color:ClearColorConfig::Custom(Color::NONE),..default()},bevy::camera::visibility::RenderLayers::none()));
- let camera=c.spawn((Camera2d,Camera{order:100,clear_color:ClearColorConfig::None,..default()})).id();
+ // The full-size 3D target already clears transparent; no extra empty clear pass.
+ let camera=c.spawn((SpeechCamera,Camera2d,Camera{order:100,is_active:false,clear_color:ClearColorConfig::None,..default()})).id();
  let font=benilla_formats::Chain::open(std::path::Path::new(&ui.active_data_dir)).ok().and_then(|chain|["Fonts/FZLBJW.TTF","Fonts/FZXHJW.TTF","Fonts/ARIALN.TTF"].into_iter().find(|name|chain.contains(name))).map(|name|assets.load(format!("mpq://{}",name.to_ascii_lowercase()))).unwrap_or_default();
  c.spawn((Bubble,UiTargetCamera(camera),Node{position_type:PositionType::Absolute,top:px(8),width:percent(100),justify_content:JustifyContent::Center,..default()},Visibility::Hidden)).with_children(|c|{
   c.spawn((Node{padding:UiRect::axes(px(12),px(7)),border:UiRect::all(px(2)),max_width:percent(90),border_radius:BorderRadius::all(px(12)),..default()},BackgroundColor(Color::srgba(1.,0.98,0.90,0.97)),BorderColor::all(Color::srgb(0.18,0.12,0.06)))).with_children(|c|{
@@ -15,9 +15,10 @@ fn setup(mut c:Commands,assets:Res<AssetServer>,ui:Res<crate::UiState>){
   });
  });
 }
-fn update(gesture:Res<CompanionLocalGesture>,interaction:Res<crate::Interaction>,ui:Res<crate::UiState>,mut bubbles:Query<&mut Visibility,With<Bubble>>,mut lines:Query<&mut Text,With<Line>>){
+fn update(gesture:Res<CompanionLocalGesture>,interaction:Res<crate::Interaction>,ui:Res<crate::UiState>,mut bubbles:Query<&mut Visibility,With<Bubble>>,mut lines:Query<&mut Text,With<Line>>,mut cameras:Query<&mut Camera,With<SpeechCamera>>){
  let show=ui.settings.show_speech_bubble&&interaction.dancing&&gesture.active&&gesture.selected.is_some()&&!ui.chooser;
- for mut visibility in &mut bubbles{*visibility=if show{Visibility::Inherited}else{Visibility::Hidden};}
+ for mut camera in &mut cameras{if camera.is_active!=show{camera.is_active=show;}}
+ for mut visibility in &mut bubbles{let next=if show{Visibility::Inherited}else{Visibility::Hidden};if *visibility!=next{*visibility=next;}}
  if show{for mut text in &mut lines{let next=dialogue(gesture.selected.unwrap(),gesture.request);if text.0!=next{text.0=next.into();}}}
 }
 fn dialogue(animation:u16,request:u64)->&'static str{
