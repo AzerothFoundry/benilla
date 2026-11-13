@@ -1,6 +1,7 @@
 //! Opt-in, low-volume measurement; no names, URLs or full snapshots in output.
 use benilla_app::companion_renderer::CompanionRenderCounters;
 use bevy::prelude::*;
+use bevy::ecs::schedule::ScheduleLabel;
 use std::time::Instant;
 #[derive(Resource)]
 struct Meter {
@@ -109,5 +110,14 @@ mod tests {
         assert_eq!(refresh_rate(false, true, false), 30);
         assert_eq!(refresh_rate(true, false, true), 30);
         assert_eq!(refresh_rate(false, false, true), 10);
+    }
+}
+
+/// A one-character scene has many tiny systems; avoid waking workers for each batch.
+/// Asset IO and renderer task pools remain independent; game clients are unaffected.
+pub fn install_scene_executor(app:&mut App){
+    if std::env::var("REALM_COMPANION_EXECUTOR").as_deref()==Ok("parallel"){return;}
+    for label in [PreUpdate.intern(),Update.intern(),PostUpdate.intern()]{
+        app.edit_schedule(label,|schedule|{schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);});
     }
 }
