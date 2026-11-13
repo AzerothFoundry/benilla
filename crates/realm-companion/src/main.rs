@@ -8,6 +8,7 @@ mod poller;
 mod presentation;
 mod skin;
 mod speech;
+mod performance;
 mod emote_audio;
 mod ui;
 use interaction::{dance_allowed, Interaction};
@@ -265,6 +266,7 @@ fn main() -> AppExit {
     );
     speech::install(&mut app);
     emote_audio::install(&mut app);
+    performance::install(&mut app);
     let result = app.run();
     if restart_requested.load(Ordering::Relaxed) {
         if let Err(e) =

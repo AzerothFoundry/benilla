@@ -18,6 +18,9 @@ pub fn local_gesture_index(mut seed:u64,len:usize)->usize {
     seed=(seed^(seed>>27)).wrapping_mul(0x94d049bb133111eb);
     ((seed^(seed>>31)) % len.max(1) as u64) as usize
 }
+/// Opt-in counts only, never includes character data or credentials.
+#[derive(Resource,Default)]
+pub struct CompanionRenderCounters{pub enabled:bool,pub mask_captures:u64,pub mask_readbacks:u64}
 #[derive(Resource, Default)]
 pub struct CompanionFrame(pub serde_json::Value);
 /// Per-window visual preferences; recovery actions and food/drink props are always preserved.
@@ -87,7 +90,8 @@ pub fn register_companion_assets(app: &mut App, data_dir: &std::path::Path) -> a
 /// Call after DefaultPlugins; owns only the engine and one character-preview camera.
 pub fn add_companion_renderer(app: &mut App, _data_dir: PathBuf) {
     crate::companion_hit_mask::install(app);
-    app.init_resource::<CompanionFrame>()
+    app.init_resource::<CompanionRenderCounters>()
+        .init_resource::<CompanionFrame>()
         .init_resource::<CompanionLocalGesture>()
         .init_resource::<CompanionFxOptions>()
         .init_resource::<CompanionAppearanceOptions>()

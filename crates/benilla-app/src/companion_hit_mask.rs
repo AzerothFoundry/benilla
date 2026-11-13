@@ -71,6 +71,7 @@ fn update(
     time: Res<Time>,
     mut images: ResMut<Assets<Image>>,
     mut cap: ResMut<Capture>,
+    mut counts: ResMut<crate::companion_renderer::CompanionRenderCounters>,
     mut mask: ResMut<CompanionHitMask>,
     visual: Res<crate::companion_renderer::CompanionVisualState>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -184,6 +185,7 @@ fn update(
         ));
     }
     // Target changes only on scale/aspect changes; update existing target too.
+    if counts.enabled{counts.mask_captures+=1;}
     cap.pending = true;
     cap.next = time.elapsed_secs_f64() + 1.0 / 30.0;
     let dimensions = size;
@@ -193,7 +195,9 @@ fn update(
               mut c: Commands,
               mut out: ResMut<CompanionHitMask>,
               mut capture: ResMut<Capture>,
+              mut counts: ResMut<crate::companion_renderer::CompanionRenderCounters>,
               time: Res<Time>| {
+            if counts.enabled{counts.mask_readbacks+=1;}
             let bytes = &event.data;
             if dimensions == capture.size
                 && bytes.len() >= dimensions.x as usize * dimensions.y as usize * 4
