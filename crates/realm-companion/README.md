@@ -100,3 +100,9 @@ The selector uses 896×504 logical pixels (16:9), a compact character list, doub
 ### Selector (0.4.5)
 
 1120×630 logical 16:9, right-hand list reserves eight 48px rows with 4px spacing in a 416px scroll region. Eight connections fit without scrolling; extras scroll. Background uses original dark dialog artwork, WoW logo, and a faction badge when a cached race is known. It deliberately does not use a map loading-screen image. This is a simple static selector, not the original animated racial 3D scene or an actual 3D character preview.
+
+### Adaptive refresh (0.4.6)
+
+The standalone uses low-power Winit updates for both focused and unfocused windows: idle20Hz, movement/casting/attacking/local gesture/settings/drag30Hz, offline or sleeping10Hz. Native window/input events remain enabled; raw mouse motion outside the pet does not continuously wake the game loop. Silhouette capture is bounded to5Hz idle,10Hz while hovered,15Hz moving,30Hz interaction; hidden pet windows do not capture. This does not freeze model animation or change Agent behavior.
+
+Opt-in `REALM_COMPANION_PERF=1` logs measured updates/captures/readbacks per15seconds, without snapshots/URLs. `REALM_COMPANION_REFRESH=legacy` restores the old refresh/capture policy for local A/B measurement. Neither flag is persisted to settings. `scripts/measure-cpu.py PID OUTPUT_JSON SECONDS_PER_ROUND ROUNDS` records per-process CPU-time deltas and sampled median/P95; do not compare RSS from an old compressed process with a newly launched process as proof of a memory regression.
