@@ -29,3 +29,18 @@ fn dialogue(animation:u16,request:u64)->&'static str{
  lines[(request as usize)%lines.len()]
 }
 #[cfg(test)]mod tests{use super::*;#[test]fn gesture_dialogue_is_stable_and_specific(){assert_eq!(dialogue(67,2),"嗨～我在这里！");assert_eq!(dialogue(67,2),dialogue(67,2));assert_ne!(dialogue(67,2),dialogue(80,2));assert_ne!(dialogue(67,2),dialogue(67,3));}}
+
+#[cfg(test)]mod render_gate_tests {
+ use super::*;
+ #[test]fn speech_camera_only_runs_for_visible_local_dialogue(){
+  let mut app=App::new();let mut ui=crate::UiState::default();ui.settings.show_speech_bubble=true;ui.chooser=false;
+  app.insert_resource(ui).init_resource::<crate::Interaction>().init_resource::<CompanionLocalGesture>().add_systems(Update,update);
+  let cam=app.world_mut().spawn((SpeechCamera,Camera::default())).id();app.world_mut().spawn((Bubble,Visibility::Hidden));app.world_mut().spawn((Line,Text::new("")));
+  app.update();assert!(!app.world().get::<Camera>(cam).unwrap().is_active);
+  app.world_mut().resource_mut::<crate::Interaction>().dancing=true;
+  {let mut g=app.world_mut().resource_mut::<CompanionLocalGesture>();g.active=true;g.selected=Some(67);g.request=2;}
+  app.update();assert!(app.world().get::<Camera>(cam).unwrap().is_active);
+  app.world_mut().resource_mut::<crate::UiState>().settings.show_speech_bubble=false;
+  app.update();assert!(!app.world().get::<Camera>(cam).unwrap().is_active);
+ }
+}
