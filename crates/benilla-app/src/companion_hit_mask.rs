@@ -72,6 +72,7 @@ fn update(
     mut images: ResMut<Assets<Image>>,
     mut cap: ResMut<Capture>,
     mut counts: ResMut<crate::companion_renderer::CompanionRenderCounters>,
+    rate: Res<crate::companion_renderer::CompanionMaskRate>,
     mut mask: ResMut<CompanionHitMask>,
     visual: Res<crate::companion_renderer::CompanionVisualState>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -103,7 +104,7 @@ fn update(
     if let Ok((mut cam, _, _, _)) = camera.single_mut() {
         cam.is_active = false;
     }
-    if !visual.ready {
+    if !visual.ready || window.single().is_ok_and(|w|!w.visible) {
         mask.valid = false;
         return;
     }
@@ -187,7 +188,7 @@ fn update(
     // Target changes only on scale/aspect changes; update existing target too.
     if counts.enabled{counts.mask_captures+=1;}
     cap.pending = true;
-    cap.next = time.elapsed_secs_f64() + 1.0 / 30.0;
+    cap.next = time.elapsed_secs_f64() + 1.0 / rate.hz.clamp(5.,30.);
     let dimensions = size;
     let image = cap.image.clone();
     c.spawn(Readback::texture(image)).observe(

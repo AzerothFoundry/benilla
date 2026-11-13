@@ -267,6 +267,7 @@ fn main() -> AppExit {
     speech::install(&mut app);
     emote_audio::install(&mut app);
     performance::install(&mut app);
+    performance::install_refresh(&mut app);
     let result = app.run();
     if restart_requested.load(Ordering::Relaxed) {
         if let Err(e) =
