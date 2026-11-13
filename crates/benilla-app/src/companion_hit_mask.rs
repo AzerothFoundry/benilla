@@ -13,6 +13,9 @@ use bevy::{
 const LAYER: usize = 30;
 #[derive(Resource, Default)]
 pub struct CompanionHitMask {
+    pub pose_stamp:u64,
+    pub current_stamp:u64,
+    pub stable_idle:bool,
     pub top_fraction: f32,
     pub width: u32,
     pub height: u32,
@@ -21,6 +24,10 @@ pub struct CompanionHitMask {
     pub captured_at: f64,
 }
 impl CompanionHitMask {
+    pub fn usable(&self,now:f64,power_saving:bool)->bool{
+        self.valid&&(now-self.captured_at<0.5||(power_saving&&self.stable_idle&&self.pose_stamp==self.current_stamp))
+    }
+
     pub fn contains(&self, point: Vec2, size: Vec2) -> bool {
         if !self.valid
             || size.x <= 0.
@@ -74,7 +81,7 @@ fn update(
     mut counts: ResMut<crate::companion_renderer::CompanionRenderCounters>,
     rate: Res<crate::companion_renderer::CompanionMaskRate>,
     mut mask: ResMut<CompanionHitMask>,
-    visual: Res<crate::companion_renderer::CompanionVisualState>,
+    state:(Res<crate::companion_renderer::CompanionVisualState>,Res<crate::companion_renderer::CompanionFrame>,Res<crate::companion_renderer::CompanionLocalGesture>,Res<crate::companion_renderer::CompanionAppearanceOptions>),
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     source: Query<(&Transform, &Projection, &Camera), With<crate::portrait::companion_booth::PetCamera>>,
     mut camera: Query<
@@ -101,6 +108,16 @@ fn update(
         )>,
     >,
 ) {
+    use std::hash::{Hash,Hasher};
+    let (visual,frame,gesture,options)=state;
+    let mut hash=std::collections::hash_map::DefaultHasher::new();
+    frame.0["connected"].hash(&mut hash);frame.0["appearance"].hash(&mut hash);options.show_helm.hash(&mut hash);options.equipment_visibility.hash(&mut hash);
+    for key in ["stand_state","sleeping","dancing","dead","mounted","moving","locomotion","cast_spell","auto_repeat_spell","stealthed","stunned","emote_state_id"]{frame.0["animation"][key].hash(&mut hash);}
+    gesture.active.hash(&mut hash);if gesture.active{gesture.request.hash(&mut hash);}
+    let stamp=hash.finish();
+    if mask.current_stamp!=stamp{mask.current_stamp=stamp;mask.valid=false;}
+    let a=&frame.0["animation"];
+    mask.stable_idle=frame.0["connected"]==true&&a["sleeping"]!=true&&a["dancing"]!=true&&!gesture.active&&a["moving"]!=true&&a["dead"]!=true&&a["mounted"]!=true&&a["stealthed"]!=true&&a["stunned"]!=true&&a["stand_state"].as_u64().unwrap_or(0)==0&&a["emote_state_id"].as_u64().unwrap_or(0)==0&&a["cast_spell"].is_null()&&a["auto_repeat_spell"].is_null();
     if let Ok((mut cam, _, _, _)) = camera.single_mut() {
         cam.is_active = false;
     }
@@ -130,6 +147,7 @@ fn update(
         cap.image = images.add(image);
         cap.size = size;
     }
+    if rate.hz<=0.&&mask.valid&&std::env::var_os("REALM_COMPANION_HIT_MASK_DUMP").is_none(){return;}
     if cap.pending || time.elapsed_secs_f64() < cap.next {
         return;
     }
@@ -200,7 +218,7 @@ fn update(
               time: Res<Time>| {
             if counts.enabled{counts.mask_readbacks+=1;}
             let bytes = &event.data;
-            if dimensions == capture.size
+            if dimensions == capture.size && out.current_stamp==stamp
                 && bytes.len() >= dimensions.x as usize * dimensions.y as usize * 4
             {
                 out.width = dimensions.x;
@@ -210,7 +228,8 @@ fn update(
                     .take((dimensions.x * dimensions.y) as usize)
                     .map(|v| v[3])
                     .collect();
-                out.valid = true;
+                out.pose_stamp=stamp;
+                out.valid = out.alpha.iter().any(|alpha|*alpha>=48);
                 out.captured_at = time.elapsed_secs_f64();
                 if !capture.dumped && time.elapsed_secs_f64()>3.0 && out.alpha.iter().any(|a| *a >= 48) {
                     if let Some(path) = std::env::var_os("REALM_COMPANION_HIT_MASK_DUMP") {
