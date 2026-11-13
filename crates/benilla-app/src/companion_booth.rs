@@ -179,6 +179,7 @@ fn sync(
     mut sleep_blend: Local<f32>,
     mut last: Local<u64>,
     mut framing: Local<Option<super::PortraitAnchors>>,
+    mut camera_key: Local<Option<(u64,u32,u32,u32,u32)>>,
     render_data: (
         crate::entities::companion_effects::CompanionAttachedModels,
         Res<benilla_world::doodad_anim::UvAnimMaterials>,
@@ -321,9 +322,15 @@ fn sync(
         && bake.look == preview.look
         && !bake.parts.is_empty()
         && pose.is_some();
-    if visual.ready {
+    if visual.ready && visual.appearance!=frame.0["appearance"] {
         visual.appearance = frame.0["appearance"].clone();
     }
+    // Mount framing currently resets then elevates each frame; keep that path intact.
+    // Sleep framing follows evaluated bones and must remain dynamic through transitions.
+    let can_cache=frame.0["appearance"]["mount_display_id"].as_u64().unwrap_or(0)==0&&!view.sleep_camera&&*sleep_blend<=0.001;
+    let key=windows.single().ok().map(|w|(view.model_revision,w.width().to_bits(),w.height().to_bits(),scale.0.to_bits(),display_aspect.0.to_bits()));
+    if can_cache&&key.is_some()&&*camera_key==key{return;}
+    *camera_key=if can_cache{key}else{None};
     if let Some(a) = framing.as_ref() {
         let aspect = windows
             .single()
