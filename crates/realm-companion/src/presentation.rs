@@ -60,7 +60,8 @@ pub fn reveal_avatar(
             info!("companion startup: model prepared; revealing transparent window");
         }
     }
-    window.visible = reveal.shown && !ui.chooser;
+    let visible=reveal.shown&&!ui.chooser;
+    if window.visible!=visible{window.visible=visible;}
 }
 
 #[cfg(test)]

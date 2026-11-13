@@ -3,6 +3,7 @@ use benilla_app::companion_renderer::CompanionHitMask;
 use bevy::prelude::*;
 #[derive(Resource, Default)]
 pub(crate) struct PointerGate {
+    pub near: bool,
     pub hit: bool,
     pub captured: bool,
     pub point: Option<Vec2>,
@@ -65,7 +66,7 @@ fn poll(
                 continue;
             }
             if ui.chooser {
-                window.setIgnoresMouseEvents(false);
+                if window.ignoresMouseEvents(){window.setIgnoresMouseEvents(false);}
                 gate.hit = true;
                 gate.captured = false;
                 gate.was_down = down;
@@ -86,12 +87,14 @@ fn poll(
                 bounds.size.height - (p.y - bounds.origin.y)
             };
             gate.point = Some(Vec2::new((p.x - bounds.origin.x) as f32, y as f32));
-            let hit = time.elapsed_secs_f64() - mask.captured_at < 0.5
+            gate.near=p.x>=bounds.origin.x&&p.x<bounds.origin.x+bounds.size.width&&y>=0.&&y<bounds.size.height;
+            let hit = mask.usable(time.elapsed_secs_f64(),ui.settings.power_saving_idle)
                 && mask.contains(
                     Vec2::new((p.x - bounds.origin.x) as f32, y as f32),
                     Vec2::new(bounds.size.width as f32, bounds.size.height as f32),
                 );
-            window.setIgnoresMouseEvents(!gate.update(hit, down));
+            let ignore=!gate.update(hit,down);
+            if window.ignoresMouseEvents()!=ignore{window.setIgnoresMouseEvents(ignore);}
         }
     }
 }

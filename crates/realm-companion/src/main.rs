@@ -9,6 +9,7 @@ mod presentation;
 mod skin;
 mod speech;
 mod performance;
+mod native_wake;
 mod emote_audio;
 mod ui;
 use interaction::{dance_allowed, Interaction};
@@ -177,8 +178,17 @@ fn main() -> AppExit {
     if let Some([x, y]) = settings.position {
         window.position = WindowPosition::At(IVec2::new(x, y));
     }
+    let defaults=benilla_world::boot::tuned_default_plugins(window.clone());
+    let defaults=if std::env::var("REALM_COMPANION_POOLS").as_deref()==Ok("game"){defaults}else{
+        defaults.set(bevy::app::TaskPoolPlugin{task_pool_options:bevy::app::TaskPoolOptions{
+            min_total_threads:4,max_total_threads:4,
+            io:bevy::app::TaskPoolThreadAssignmentPolicy{min_threads:2,max_threads:2,percent:0.5,on_thread_spawn:None,on_thread_destroy:None},
+            async_compute:bevy::app::TaskPoolThreadAssignmentPolicy{min_threads:1,max_threads:1,percent:0.25,on_thread_spawn:None,on_thread_destroy:None},
+            compute:bevy::app::TaskPoolThreadAssignmentPolicy{min_threads:1,max_threads:1,percent:0.25,on_thread_spawn:None,on_thread_destroy:None},
+        }})
+    };
     app.add_plugins(
-        benilla_world::boot::tuned_default_plugins(window.clone())
+        defaults
             .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
             .set(WindowPlugin {
                 primary_window: Some(window.clone()),
@@ -349,6 +359,12 @@ fn poll_status(
                         }
                     }
                 }
+                if std::env::var_os("REALM_COMPANION_PERF").is_some(){
+                    if let Some(sent)=data["_fixture_sent_ms"].as_u64(){
+                        let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_millis() as u64);
+                        info!("companion fixture delivery: delay_ms={}",now.saturating_sub(sent));
+                    }
+                }
                 interaction.server_update(&frame.0, &data);
                 ui.connection = if data["connected"] == true {
                     format!(
@@ -438,11 +454,8 @@ fn window_controls(
     if (window.width() - size.x).abs() > 1.0 || (window.height() - size.y).abs() > 1.0 {
         window.resolution.set(size.x, size.y);
     }
-    window.window_level = if ui.settings.always_on_top {
-        WindowLevel::AlwaysOnTop
-    } else {
-        WindowLevel::Normal
-    };
+    let level=if ui.settings.always_on_top{WindowLevel::AlwaysOnTop}else{WindowLevel::Normal};
+    if window.window_level!=level{window.window_level=level;}
 }
 // Optional local visual acceptance probe; never writes into the game install.
 fn visual_probe(
@@ -561,19 +574,16 @@ fn settings_window_controls(
             exit.write(AppExit::Success);
         }
     }
-    window.title = if ui.chooser {
-        "选择角色".into()
-    } else {
-        "桌宠设置".into()
-    };
-    window.visible = ui.open;
+    let title=if ui.chooser{"选择角色"}else{"桌宠设置"};
+    if window.title!=title{window.title=title.into();}
+    if window.visible!=ui.open{window.visible=ui.open;}
     if ui.recenter && ui.open {
         window.position = WindowPosition::Centered(bevy::window::MonitorSelection::Primary);
         window.focused = true;
         ui.recenter = false;
     }
     for mut camera in &mut cameras {
-        camera.is_active = ui.open;
+        if camera.is_active!=ui.open{camera.is_active=ui.open;}
     }
 }
 
@@ -716,6 +726,14 @@ mod local_gesture_tests {
         assert_eq!(ui.preview_settings().scale_percent,175.);assert_eq!(ui.preview_settings().show_helm,Some(false));assert_eq!(ui.settings.scale_percent,100.);
         ui.open=false;assert_eq!(ui.preview_settings().scale_percent,100.);assert_ne!(ui.preview_settings().show_helm,Some(false));
         ui.open=true;ui.chooser=true;assert_eq!(ui.preview_settings().scale_percent,100.);
+    }
+    #[test]
+    fn idle_hit_cache_never_reuses_a_stale_changed_or_dynamic_pose(){
+        let mut mask=benilla_app::companion_renderer::CompanionHitMask::default();mask.valid=true;mask.stable_idle=true;mask.current_stamp=7;mask.pose_stamp=7;mask.captured_at=1.;
+        assert!(mask.usable(10.,true));assert!(!mask.usable(10.,false));
+        mask.current_stamp=8;assert!(!mask.usable(10.,true));
+        mask.current_stamp=7;mask.stable_idle=false;assert!(!mask.usable(10.,true));assert!(mask.usable(1.1,true));
+        mask.valid=false;assert!(!mask.usable(1.1,true));
     }
     #[test]
     fn speech_headroom_is_passthrough_and_body_mask_maps_below_it(){

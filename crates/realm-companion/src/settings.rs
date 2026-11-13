@@ -41,6 +41,7 @@ pub struct Settings {
     pub scale_percent: f32,
     pub always_on_top: bool,
     pub all_desktops: bool,
+    pub power_saving_idle: bool,
     pub show_speech_bubble: bool,
     pub play_emote_sounds: bool,
     pub show_spell_effects: bool,
@@ -102,6 +103,7 @@ impl Default for Settings {
             scale_percent: 100.,
             always_on_top: true,
             all_desktops: true,
+            power_saving_idle: true,
             show_speech_bubble: true,
             play_emote_sounds: false,
             show_spell_effects: true,
@@ -274,6 +276,7 @@ impl Settings {
         field!(scale_percent);
         field!(always_on_top);
         field!(all_desktops);
+        field!(power_saving_idle);
         field!(show_speech_bubble);
         field!(play_emote_sounds);
         field!(show_spell_effects);

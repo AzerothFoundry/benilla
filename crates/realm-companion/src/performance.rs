@@ -1,7 +1,7 @@
 //! Opt-in, low-volume measurement; no names, URLs or full snapshots in output.
 use benilla_app::companion_renderer::CompanionRenderCounters;
-use bevy::prelude::*;
 use bevy::ecs::schedule::ScheduleLabel;
+use bevy::prelude::*;
 use std::time::Instant;
 #[derive(Resource)]
 struct Meter {
@@ -38,6 +38,9 @@ fn measure(mut meter: ResMut<Meter>, counts: Res<CompanionRenderCounters>) {
 }
 
 pub fn install_refresh(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .set_max_delta(std::time::Duration::from_millis(500));
     if std::env::var("REALM_COMPANION_REFRESH").as_deref() == Ok("legacy") {
         return;
     }
@@ -58,14 +61,47 @@ fn refresh(
     mut settings: ResMut<bevy::winit::WinitSettings>,
     mut mask: ResMut<benilla_app::companion_renderer::CompanionMaskRate>,
     mut previous: Local<u32>,
+    wake: Res<crate::native_wake::WakeReady>,
+    time: Res<Time>,
+    mut activity: Local<Activity>,
 ) {
     let a = &frame.0["animation"];
-    let interactive = ui.open || pointer.captured || gesture.dancing;
-    let active = a["moving"] == true
+    let interactive = ui.open || pointer.near || pointer.captured || gesture.dancing;
+    let raw_active = gesture.dancing
+        || a["moving"] == true
         || a["attacking"] == true
-        || a["cast_remaining_ms"].as_u64().unwrap_or(0) > 0;
+        || a["cast_remaining_ms"].as_u64().unwrap_or(0) > 0
+        || a["emote_state_id"].as_u64().unwrap_or(0) > 0;
+    let now = time.elapsed_secs_f64();
+    let seq = frame.0["visual_sequence"].as_u64().unwrap_or(0);
+    if activity.sequence != seq {
+        activity.sequence = seq;
+        activity.until = now + 3.;
+    }
+    let posture = (
+        frame.0["connected"] == true,
+        a["stand_state"].as_u64().unwrap_or(0),
+        a["dead"] == true,
+        frame.0["appearance"]["mount_display_id"]
+            .as_u64()
+            .unwrap_or(0),
+        frame.0["appearance"]["display_id"].as_u64().unwrap_or(0),
+    );
+    if activity.posture != Some(posture) {
+        activity.posture = Some(posture);
+        activity.until = activity.until.max(now + 2.);
+    }
+    if activity.was_active && !raw_active {
+        activity.until = activity.until.max(now + 0.6);
+    }
+    activity.was_active = raw_active;
+    let active = raw_active || now < activity.until;
     let sleep = frame.0["connected"] != true || a["sleeping"] == true || a["stand_state"] == 3;
-    let fps = refresh_rate(interactive, active, sleep);
+    let fps = if ui.settings.power_saving_idle && wake.0 && !interactive && !active {
+        4
+    } else {
+        refresh_rate(interactive, active, sleep)
+    };
     if *previous != fps {
         if std::env::var_os("REALM_COMPANION_PERF").is_some() {
             info!("companion refresh target: fps={fps} interactive={interactive} moving_or_casting={active} sleeping_or_offline={sleep}");
@@ -79,7 +115,9 @@ fn refresh(
         settings.focused_mode = mode;
         settings.unfocused_mode = mode;
     }
-    let hz = if interactive {
+    let hz = if ui.settings.power_saving_idle && !pointer.near && !pointer.captured {
+        0.
+    } else if interactive {
         30.
     } else if active {
         15.
@@ -115,9 +153,195 @@ mod tests {
 
 /// A one-character scene has many tiny systems; avoid waking workers for each batch.
 /// Asset IO and renderer task pools remain independent; game clients are unaffected.
-pub fn install_scene_executor(app:&mut App){
-    if std::env::var("REALM_COMPANION_EXECUTOR").as_deref()==Ok("parallel"){return;}
-    for label in [PreUpdate.intern(),Update.intern(),PostUpdate.intern()]{
-        app.edit_schedule(label,|schedule|{schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);});
+pub fn install_scene_executor(app: &mut App) {
+    if std::env::var("REALM_COMPANION_PHYSICS").as_deref() != Ok("on") {
+        use avian3d::prelude::PhysicsSystems;
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                PhysicsSystems::First,
+                PhysicsSystems::Prepare,
+                PhysicsSystems::StepSimulation,
+                PhysicsSystems::Writeback,
+                PhysicsSystems::Last,
+            )
+                .run_if(|| false),
+        );
+    }
+
+    app.add_systems(Last, clear_hidden_ui_redraw);
+    crate::native_wake::install(app);
+    if std::env::var("REALM_COMPANION_EXECUTOR").as_deref() == Ok("parallel") {
+        return;
+    }
+    if std::env::var("REALM_COMPANION_RENDER_EXECUTOR").as_deref() != Ok("parallel") {
+        if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.edit_schedule(bevy::render::Render, |schedule| {
+                schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+            });
+        }
+    }
+    for label in [PreUpdate.intern(), Update.intern(), PostUpdate.intern()] {
+        app.edit_schedule(label, |schedule| {
+            schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+        });
+    }
+}
+
+#[cfg(test)]
+mod scene_tests {
+    use super::*;
+    #[test]
+    fn core_time_and_message_lifecycle_are_retained() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        install_scene_executor(&mut app);
+        let order = app.world().resource::<bevy::app::MainScheduleOrder>();
+        assert!(order.labels.contains(&bevy::app::RunFixedMainLoop.intern()));
+        assert!(!app
+            .world()
+            .resource::<bevy::app::FixedMainScheduleOrder>()
+            .labels
+            .is_empty());
+        assert!(order.labels.contains(&Update.intern()));
+        assert!(order.labels.contains(&PostUpdate.intern()));
+    }
+}
+
+// egui can retain a repaint request from a now-hidden settings context. The timer
+// still advances animation; native input/user events still wake the Winit loop.
+fn clear_hidden_ui_redraw(
+    ui: Res<crate::UiState>,
+    mut redraw: ResMut<Messages<bevy::window::RequestRedraw>>,
+) {
+    if !ui.open {
+        redraw.clear();
+    }
+}
+#[cfg(test)]
+mod redraw_tests {
+    use super::*;
+    #[test]
+    fn visible_settings_keep_redraw_but_hidden_settings_use_timer() {
+        let mut app = App::new();
+        app.init_resource::<crate::UiState>()
+            .add_message::<bevy::window::RequestRedraw>()
+            .add_systems(Last, clear_hidden_ui_redraw);
+        app.world_mut().resource_mut::<crate::UiState>().open = true;
+        app.world_mut()
+            .resource_mut::<Messages<bevy::window::RequestRedraw>>()
+            .write(bevy::window::RequestRedraw);
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<Messages<bevy::window::RequestRedraw>>()
+            .is_empty());
+        app.world_mut().resource_mut::<crate::UiState>().open = false;
+        app.update();
+        assert!(app
+            .world()
+            .resource::<Messages<bevy::window::RequestRedraw>>()
+            .is_empty());
+    }
+}
+
+#[derive(Default)]
+struct Activity {
+    sequence: u64,
+    until: f64,
+    was_active: bool,
+    posture: Option<(bool, u64, bool, u64, u64)>,
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[derive(Message)]
+    struct Pulse;
+    #[test]
+    fn fixed_lifecycle_still_recycles_messages_with_desktop_executor() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<crate::UiState>()
+            .add_message::<bevy::window::RequestRedraw>()
+            .add_message::<Pulse>();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(50),
+        ));
+        install_scene_executor(&mut app);
+        app.world_mut()
+            .resource_mut::<Messages<Pulse>>()
+            .write(Pulse);
+        for _ in 0..6 {
+            app.update();
+        }
+        assert!(app.world().resource::<Messages<Pulse>>().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod adaptive_policy_tests {
+    use super::*;
+    #[test]
+    fn quiet_power_mode_is_low_but_activity_and_settling_remain_fast() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<crate::UiState>()
+            .init_resource::<crate::Interaction>()
+            .init_resource::<crate::hit_test::PointerGate>()
+            .init_resource::<benilla_app::companion_renderer::CompanionMaskRate>();
+        app.insert_resource(crate::CompanionFrame(
+            serde_json::json!({"connected":true,"animation":{"stand_state":0}}),
+        ))
+        .insert_resource(crate::native_wake::WakeReady(true))
+        .insert_resource(bevy::winit::WinitSettings::game())
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(250),
+        ))
+        .add_systems(Update, refresh);
+        for _ in 0..14 {
+            app.update();
+        }
+        let mode = |app: &App| {
+            app.world()
+                .resource::<bevy::winit::WinitSettings>()
+                .focused_mode
+        };
+        assert_eq!(
+            mode(&app),
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(0.25))
+        );
+        app.world_mut().resource_mut::<crate::CompanionFrame>().0["animation"]["moving"] =
+            true.into();
+        app.update();
+        assert_eq!(
+            mode(&app),
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1. / 30.
+            ))
+        );
+        app.world_mut().resource_mut::<crate::CompanionFrame>().0["animation"]["moving"] =
+            false.into();
+        app.update();
+        assert_eq!(
+            mode(&app),
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1. / 30.
+            ))
+        );
+        for _ in 0..8 {
+            app.update();
+        }
+        app.world_mut()
+            .resource_mut::<crate::UiState>()
+            .settings
+            .power_saving_idle = false;
+        app.update();
+        assert_eq!(
+            mode(&app),
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1. / 20.
+            ))
+        );
     }
 }

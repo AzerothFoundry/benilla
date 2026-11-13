@@ -184,6 +184,7 @@ pub fn settings_ui(
                 }
                 ui.small("事件接口自动发现；不可用时回退到 status 轮询。");
                 ui.add_space(6.0);
+                ui.checkbox(&mut state.draft.power_saving_idle,"省电待机（待机4帧，活动时恢复30帧）");
                 ui.checkbox(&mut state.draft.show_speech_bubble,"显示表情气泡");
                 ui.checkbox(&mut state.draft.play_emote_sounds,"播放表情声音（游戏原声）");
                 ui.small("部分动作没有原声；对白是桌宠本地短句，不是语音字幕。");

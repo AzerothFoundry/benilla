@@ -1,10 +1,11 @@
 [package]
 name = "realm-companion"
-version = "0.4.6"
+version = "0.4.7"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
+avian3d = "0.6"
 bevy.workspace = true
 benilla-app = { path = "../benilla-app", default-features = false, features = ["companion"] }
 benilla-world = { path = "../benilla-world", default-features = false }
@@ -23,4 +24,7 @@ libc = "0.2"
 tray-icon = {version="0.23.1",default-features=false}
 objc2 = "0.5"
 objc2-app-kit = {version="0.2",features=["NSApplication","NSWindow","NSImage"]}
-objc2-foundation = {version="0.2",features=["NSArray"]}
+objc2-foundation = {version="0.2",features=["NSArray","NSTimer","NSDate","block2"]}
+
+[target.'cfg(target_os = "macos")'.dependencies.block2]
+version = "0.5"

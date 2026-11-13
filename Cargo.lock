@@ -6078,14 +6078,16 @@ dependencies = [
 
 [[package]]
 name = "realm-companion"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
+ "avian3d",
  "benilla-app",
  "benilla-blp",
  "benilla-formats",
  "benilla-world",
  "bevy",
  "bevy_egui",
+ "block2 0.5.1",
  "image",
  "libc",
  "objc2 0.5.2",
