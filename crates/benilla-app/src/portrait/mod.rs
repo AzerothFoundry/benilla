@@ -2743,3 +2743,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "companion")]
+#[path = "../companion_booth.rs"]
+pub(crate) mod companion_booth;

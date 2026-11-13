@@ -492,3 +492,15 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     // (`capture::drive_capture`), which must not exit 0 with no PNG on disk.
     app.run()
 }
+
+#[cfg(feature = "companion")]
+#[path = "companion_renderer.rs"]
+pub mod companion_renderer;
+#[cfg(feature = "companion")]
+mod companion_hit_mask;
+
+#[cfg(feature = "companion")]
+mod companion_surface;
+
+#[cfg(feature = "companion")]
+mod companion_projection;

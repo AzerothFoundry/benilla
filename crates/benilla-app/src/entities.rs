@@ -240,6 +240,23 @@ pub(crate) struct Creatures {
 }
 
 impl Creatures {
+    #[cfg(feature = "companion")]
+    pub(crate) fn companion_mount_emitters(
+        &self,
+        id: u32,
+    ) -> Option<&[benilla_assets::ModelEmitter]> {
+        Some(&self.models.get(&id)?.emitters)
+    }
+    #[cfg(feature = "companion")]
+    pub(crate) fn companion_mount_seat(&self, id: u32) -> Option<(u16, Vec3, f32)> {
+        let model = self.models.get(&id)?;
+        let seat = model.attachments.iter().find(|a| a.id == 0)?;
+        Some((
+            seat.bone,
+            seat.offset,
+            self.catalog.display_scale(id).unwrap_or(1.0),
+        ))
+    }
     /// The display row a unit's records come from (`0x60afb0`).
     pub(crate) fn records_row(&self, display_id: u32) -> Option<u32> {
         self.catalog.records_row(display_id)
@@ -1548,3 +1565,13 @@ mod attach_bias_tests {
         assert_eq!(ATTACH_Z_BIAS.get(0x25), None);
     }
 }
+
+#[cfg(feature = "companion")]
+pub(crate) fn companion_preview(app: &mut App) {
+    app.init_resource::<SkinComposites>().init_resource::<corpse::BonesModels>().init_resource::<spell_fx::SpellFx>()
+        .add_systems(Startup, setup_entities.after(AssetSet::Open))
+        .add_systems(Update, (land_skin_composites, update_display_models, build_glue_preview).chain());
+}
+
+#[cfg(feature = "companion")]
+pub(crate) mod companion_effects;
