@@ -211,7 +211,8 @@ fn main() -> AppExit {
     }
     app.init_resource::<CompanionFrame>()
         .init_resource::<CompanionDisplayAspect>()
-        .init_resource::<benilla_app::companion_renderer::CompanionVisualState>();
+        .init_resource::<benilla_app::companion_renderer::CompanionVisualState>()
+        .init_resource::<benilla_app::companion_renderer::CompanionHitMask>();
     app.insert_resource(CompanionFrame(presentation::preview(cached)));
     app.insert_resource(bevy_egui::EguiGlobalSettings {
         auto_create_primary_context: false,
@@ -397,6 +398,7 @@ fn window_controls(
     gate: Res<hit_test::PointerGate>,
     keys: Res<ButtonInput<KeyCode>>,
     mut moved: MessageReader<WindowMoved>,
+    mut clicks:MessageReader<bevy::input::mouse::MouseButtonInput>,
     mut display_aspect: ResMut<CompanionDisplayAspect>,
     pet_entity: Single<Entity, With<PrimaryWindow>>,
     mut interaction: ResMut<Interaction>,
@@ -411,11 +413,21 @@ fn window_controls(
             ui.monitor_ready = true;
         }
     }
-    if (window.focused && mouse.just_pressed(MouseButton::Right)) || keys.just_pressed(KeyCode::F2)
+    let mut left_pressed=false;let mut left_released=false;let mut right_pressed=false;
+    for event in clicks.read(){
+        if event.window!=*pet_entity{continue;}
+        match (event.button,event.state){
+            (MouseButton::Left,bevy::input::ButtonState::Pressed)=>left_pressed=true,
+            (MouseButton::Left,bevy::input::ButtonState::Released)=>left_released=true,
+            (MouseButton::Right,bevy::input::ButtonState::Pressed)=>right_pressed=true,
+            _=>{}
+        }
+    }
+    if right_pressed || keys.just_pressed(KeyCode::F2)
     {
         ui.open_settings(false);
     }
-    if !ui.chooser && window.focused && mouse.just_pressed(MouseButton::Left) && (gate.hit||gate.captured) {
+    if !ui.chooser && left_pressed && (gate.hit||gate.captured) {
         if let Some(point) = gate.point.or(window.cursor_position()) {
             interaction.press(point);
         }
@@ -427,7 +439,7 @@ fn window_controls(
             }
         }
     }
-    if mouse.just_released(MouseButton::Left) {
+    if left_released||mouse.just_released(MouseButton::Left) {
         interaction.release(
             (time.elapsed_secs_f64() * 1000.0) as u64,
             gate.point.or(window.cursor_position()),
@@ -763,4 +775,23 @@ mod local_gesture_tests {
         assert!(!app.world().resource::<benilla_app::companion_renderer::CompanionLocalGesture>().active);
         assert_eq!(app.world().resource::<CompanionFrame>().0,original);
     }
+}
+
+#[cfg(test)]mod window_input_tests{
+ use super::*;
+ #[test]fn body_mouse_events_work_without_focus_and_settings_clicks_do_not_leak(){
+  for own in [true,false]{
+   let mut app=App::new();app.add_plugins(MinimalPlugins).init_resource::<UiState>().init_resource::<Interaction>().init_resource::<hit_test::PointerGate>().init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>().init_resource::<CompanionDisplayAspect>().add_message::<WindowMoved>().add_message::<bevy::input::mouse::MouseButtonInput>();
+   app.insert_resource(CompanionFrame(serde_json::json!({"connected":true,"animation":{"dead":false}})));
+   let pet=app.world_mut().spawn((Window{focused:false,..default()},PrimaryWindow)).id();let other=app.world_mut().spawn(Window::default()).id();
+   {let mut ui=app.world_mut().resource_mut::<UiState>();ui.chooser=false;ui.monitor_ready=true;ui.base_size=Vec2::new(233.,268.);}
+   {let mut gate=app.world_mut().resource_mut::<hit_test::PointerGate>();gate.hit=true;gate.point=Some(Vec2::ZERO);}
+   app.add_systems(Update,window_controls);
+   for _ in 0..2{
+    for state in [bevy::input::ButtonState::Pressed,bevy::input::ButtonState::Released]{app.world_mut().resource_mut::<Messages<bevy::input::mouse::MouseButtonInput>>().write(bevy::input::mouse::MouseButtonInput{button:MouseButton::Left,state,window:if own{pet}else{other}});}
+    app.update();
+   }
+   assert_eq!(app.world().resource::<Interaction>().dancing,own);
+  }
+ }
 }

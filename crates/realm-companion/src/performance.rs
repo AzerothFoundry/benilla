@@ -44,7 +44,8 @@ pub fn install_refresh(app: &mut App) {
     if std::env::var("REALM_COMPANION_REFRESH").as_deref() == Ok("legacy") {
         return;
     }
-    app.init_resource::<benilla_app::companion_renderer::CompanionMaskRate>();
+    app.init_resource::<benilla_app::companion_renderer::CompanionDerivedActivity>()
+        .init_resource::<benilla_app::companion_renderer::CompanionMaskRate>();
     let mode =
         bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(1. / 20.));
     app.insert_resource(bevy::winit::WinitSettings {
@@ -62,16 +63,27 @@ fn refresh(
     mut mask: ResMut<benilla_app::companion_renderer::CompanionMaskRate>,
     mut previous: Local<u32>,
     wake: Res<crate::native_wake::WakeReady>,
+    derived: Res<benilla_app::companion_renderer::CompanionDerivedActivity>,
     time: Res<Time>,
     mut activity: Local<Activity>,
 ) {
     let a = &frame.0["animation"];
     let interactive = ui.open || pointer.near || pointer.captured || gesture.dancing;
-    let raw_active = gesture.dancing
-        || a["moving"] == true
-        || a["attacking"] == true
-        || a["cast_remaining_ms"].as_u64().unwrap_or(0) > 0
-        || a["emote_state_id"].as_u64().unwrap_or(0) > 0;
+    let raw_active = derived.0
+        || (frame.0["connected"] == true
+            && (a["dancing"] == true
+                || a["stunned"] == true
+                || gesture.dancing
+                || a["moving"] == true
+                || a["attacking"] == true
+                || a["cast_remaining_ms"].as_u64().unwrap_or(0) > 0
+                || a["emote_state_id"].as_u64().unwrap_or(0) > 0
+                || a["auto_repeat_spell"].as_u64().unwrap_or(0) > 0
+                || a["looting"] == true
+                || matches!(
+                    a["locomotion"].as_str(),
+                    Some("fall" | "swim" | "swim_idle" | "swim_backward" | "fly")
+                )));
     let now = time.elapsed_secs_f64();
     let seq = frame.0["visual_sequence"].as_u64().unwrap_or(0);
     if activity.sequence != seq {
@@ -86,6 +98,9 @@ fn refresh(
             .as_u64()
             .unwrap_or(0),
         frame.0["appearance"]["display_id"].as_u64().unwrap_or(0),
+        a["sleeping"] == true
+            || a["stand_state"] == 3
+            || (frame.0["connected"] != true && frame.0["_local_preview"] != true),
     );
     if activity.posture != Some(posture) {
         activity.posture = Some(posture);
@@ -115,7 +130,12 @@ fn refresh(
         settings.focused_mode = mode;
         settings.unfocused_mode = mode;
     }
-    let hz = if ui.settings.power_saving_idle && !pointer.near && !pointer.captured {
+    let hz = if ui.settings.power_saving_idle
+        && !pointer.near
+        && !pointer.captured
+        && !active
+        && !ui.open
+    {
         0.
     } else if interactive {
         30.
@@ -250,7 +270,7 @@ struct Activity {
     sequence: u64,
     until: f64,
     was_active: bool,
-    posture: Option<(bool, u64, bool, u64, u64)>,
+    posture: Option<(bool, u64, bool, u64, u64, bool)>,
 }
 
 #[cfg(test)]
@@ -289,7 +309,8 @@ mod adaptive_policy_tests {
             .init_resource::<crate::UiState>()
             .init_resource::<crate::Interaction>()
             .init_resource::<crate::hit_test::PointerGate>()
-            .init_resource::<benilla_app::companion_renderer::CompanionMaskRate>();
+            .init_resource::<benilla_app::companion_renderer::CompanionMaskRate>()
+            .init_resource::<benilla_app::companion_renderer::CompanionDerivedActivity>();
         app.insert_resource(crate::CompanionFrame(
             serde_json::json!({"connected":true,"animation":{"stand_state":0}}),
         ))
@@ -341,6 +362,18 @@ mod adaptive_policy_tests {
             mode(&app),
             bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
                 1. / 20.
+            ))
+        );
+        app.world_mut().resource_mut::<crate::CompanionFrame>().0["connected"] = false.into();
+        app.world_mut().resource_mut::<crate::CompanionFrame>().0["animation"]["moving"] =
+            true.into();
+        for _ in 0..16 {
+            app.update();
+        }
+        assert_eq!(
+            mode(&app),
+            bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
+                1. / 10.
             ))
         );
     }

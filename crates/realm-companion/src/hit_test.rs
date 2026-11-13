@@ -93,7 +93,9 @@ fn poll(
                     Vec2::new((p.x - bounds.origin.x) as f32, y as f32),
                     Vec2::new(bounds.size.width as f32, bounds.size.height as f32),
                 );
+            let before=gate.hit;
             let ignore=!gate.update(hit,down);
+            if before!=gate.hit&&std::env::var_os("REALM_COMPANION_PERF").is_some(){info!("companion pointer hit: {} cache_age_ms={:.0}",gate.hit,(time.elapsed_secs_f64()-mask.captured_at)*1000.);}
             if window.ignoresMouseEvents()!=ignore{window.setIgnoresMouseEvents(ignore);}
         }
     }

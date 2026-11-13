@@ -421,6 +421,8 @@ fn animate(
     time:Res<Time>,
     mut replay:Local<motion::Replay>,
     mount:Res<mounted::MountPresentation>,
+    mut derived:ResMut<crate::companion_renderer::CompanionDerivedActivity>,
+    fx_activity:(Res<crate::companion_renderer::CompanionFxOptions>,Res<CompanionVisualStats>,Query<(&Visibility,Option<&InheritedVisibility>),With<crate::companion_renderer::CompanionSpellFx>>),
 ) {
     let mut state = frame.0["animation"].clone();
     if frame.0["connected"].as_bool() == Some(false)
@@ -428,6 +430,7 @@ fn animate(
     {
         state = serde_json::json!({"sleeping":true});
     }
+    let mut recovering=false;
     if let Some(data) = data.as_deref() {
         let recovery = state["auras"].as_array().is_some_and(|a| {
             a.iter().filter_map(|v| v.as_u64()).any(|id| {
@@ -440,10 +443,15 @@ fn animate(
                 })
             })
         });
+        recovering=recovery;
         if recovery {
             state["eating"] = true.into();
         }
     }
+    let (fx_options,fx_stats,spell_parts)=fx_activity;
+    let effect_active=(fx_options.equipment_effects&&(fx_stats.particle_emitters+fx_stats.ribbons+fx_stats.animated_materials>0))||(fx_options.spell_effects&&spell_parts.iter().any(|(visibility,inherited)|*visibility!=Visibility::Hidden&&inherited.is_none_or(|v|v.get())));
+    let dynamic=recovering||state["eating"]==true||state["drinking"]==true||effect_active;
+    if derived.0!=dynamic{derived.0=dynamic;}
     let cast_hold=if state["cast_remaining_ms"].as_u64().unwrap_or(0)>0{data.as_ref().and_then(|d|d.visuals.as_ref().and_then(|v|spell_motion::hold(&d.spells,v,state["cast_spell"].as_u64()? as u32,state["channeling"]==true)))}else{None};
     let ranged_item=frame.0["appearance"]["equipment"].as_array().and_then(|items|items.iter().find(|i|i["slot"]==17));
     let ranged_ready=data.as_ref().and_then(|d|spell_motion::ranged_ready(&d.spells,state["auto_repeat_spell"].as_u64()? as u32,ranged_item.and_then(|i|i["item_class"].as_u64()).map(|n|n as u32),ranged_item.and_then(|i|i["item_subclass"].as_u64()).map(|n|n as u32)));
@@ -498,6 +506,7 @@ fn animate(
         let local_gesture = gesture.active.then_some(gesture.selected).flatten();
         let event_finished=finished&&replay.active.is_some_and(|e|e.sequence==playback.explicit_sequence);
         let event=replay.select(&motion_frame,time.elapsed_secs_f64(),event_finished);
+        if event.is_some(){derived.0=true;}
         let base=if state["locomotion"]=="fall"&&replay.jumping(time.elapsed_secs_f64()){Some(38)}else if state["moving"]==true {motion::base(&state).or_else(||resolve(desired))}else{state["state_animation_id"].as_u64().filter(|id|*id<208).map(|id|id as u16).or_else(||motion::base(&state))};
         let high=state["dead"]==true||state["stand_state"]==7||state["sleeping"]==true||state["stand_state"]==3||state["stunned"]==true||state["dancing"]==true;
         let casting=state["cast_remaining_ms"].as_u64().unwrap_or(0)>0;
@@ -512,6 +521,7 @@ fn animate(
         let explicit=if high{None}else if local_gesture.is_some(){local_gesture}else if mount.ready{overlay_event.map(|e|e.id).or(channel_release).or(cast_hold).or(Some(91))}else if casting{overlay_event.filter(|e|matches!(e.id,8..=10)).map(|e|e.id).or(channel_release).or(cast_hold)}else if event.is_some_and(|e|matches!(e.id,37|39)){event.map(|e|e.id)}else if moving{overlay_event.map(|e|e.id).or(base)}else{event.map(|e|e.id).or(base)};
         let explicit_sequence=if local_gesture.is_some(){gesture.request}else if explicit.is_some(){event.filter(|e|Some(e.id)==explicit).map_or(0,|e|e.sequence)}else{0};
         let name = next_animation(playback.name, desired, finished);
+        if !finished&&matches!(name,"Death"|"SitGroundDown"|"SitGroundUp"|"SleepDown"|"SleepUp"){derived.0=true;}
         presentation.sleep_camera = matches!(name, "SleepDown" | "Sleep" | "SleepUp");
         if !fresh && playback.name == name && playback.explicit_id==explicit && playback.explicit_sequence==explicit_sequence && playback.motion_session==frame.0["visual_session"].as_str().unwrap_or("") && playback.node.is_some() {
             continue;

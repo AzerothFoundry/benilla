@@ -81,7 +81,7 @@ fn update(
     mut counts: ResMut<crate::companion_renderer::CompanionRenderCounters>,
     rate: Res<crate::companion_renderer::CompanionMaskRate>,
     mut mask: ResMut<CompanionHitMask>,
-    state:(Res<crate::companion_renderer::CompanionVisualState>,Res<crate::companion_renderer::CompanionFrame>,Res<crate::companion_renderer::CompanionLocalGesture>,Res<crate::companion_renderer::CompanionAppearanceOptions>),
+    state:(Res<crate::companion_renderer::CompanionVisualState>,Res<crate::companion_renderer::CompanionFrame>,Res<crate::companion_renderer::CompanionLocalGesture>,Res<crate::companion_renderer::CompanionAppearanceOptions>,Res<crate::companion_renderer::CompanionDerivedActivity>),
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     source: Query<(&Transform, &Projection, &Camera), With<crate::portrait::companion_booth::PetCamera>>,
     mut camera: Query<
@@ -109,15 +109,15 @@ fn update(
     >,
 ) {
     use std::hash::{Hash,Hasher};
-    let (visual,frame,gesture,options)=state;
+    let (visual,frame,gesture,options,derived)=state;
     let mut hash=std::collections::hash_map::DefaultHasher::new();
-    frame.0["connected"].hash(&mut hash);frame.0["appearance"].hash(&mut hash);options.show_helm.hash(&mut hash);options.equipment_visibility.hash(&mut hash);
+    frame.0["connected"].hash(&mut hash);frame.0["_local_preview"].hash(&mut hash);frame.0["appearance"].hash(&mut hash);meshes.iter().len().hash(&mut hash);options.show_helm.hash(&mut hash);options.equipment_visibility.hash(&mut hash);
     for key in ["stand_state","sleeping","dancing","dead","mounted","moving","locomotion","cast_spell","auto_repeat_spell","stealthed","stunned","emote_state_id"]{frame.0["animation"][key].hash(&mut hash);}
-    gesture.active.hash(&mut hash);if gesture.active{gesture.request.hash(&mut hash);}
+    derived.0.hash(&mut hash);gesture.active.hash(&mut hash);if gesture.active{gesture.request.hash(&mut hash);}
     let stamp=hash.finish();
     if mask.current_stamp!=stamp{mask.current_stamp=stamp;mask.valid=false;}
     let a=&frame.0["animation"];
-    mask.stable_idle=frame.0["connected"]==true&&a["sleeping"]!=true&&a["dancing"]!=true&&!gesture.active&&a["moving"]!=true&&a["dead"]!=true&&a["mounted"]!=true&&a["stealthed"]!=true&&a["stunned"]!=true&&a["stand_state"].as_u64().unwrap_or(0)==0&&a["emote_state_id"].as_u64().unwrap_or(0)==0&&a["cast_spell"].is_null()&&a["auto_repeat_spell"].is_null();
+    mask.stable_idle=!derived.0&&a["dancing"]!=true&&!gesture.active&&a["moving"]!=true&&a["dead"]!=true&&a["stealthed"]!=true&&a["stunned"]!=true&&matches!(a["stand_state"].as_u64().unwrap_or(0),0|1|3)&&a["emote_state_id"].as_u64().unwrap_or(0)==0&&a["cast_spell"].as_u64().unwrap_or(0)==0&&a["auto_repeat_spell"].as_u64().unwrap_or(0)==0&&matches!(a["locomotion"].as_str(),None|Some("stand"));
     if let Ok((mut cam, _, _, _)) = camera.single_mut() {
         cam.is_active = false;
     }

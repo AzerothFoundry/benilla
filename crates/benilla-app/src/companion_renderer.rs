@@ -21,6 +21,8 @@ pub fn local_gesture_index(mut seed:u64,len:usize)->usize {
 #[derive(Resource)]
 pub struct CompanionMaskRate{pub hz:f64}
 impl Default for CompanionMaskRate{fn default()->Self{Self{hz:30.}}}
+#[derive(Resource,Default)]
+pub struct CompanionDerivedActivity(pub bool);
 /// Opt-in counts only, never includes character data or credentials.
 #[derive(Resource,Default)]
 pub struct CompanionRenderCounters{pub enabled:bool,pub mask_captures:u64,pub mask_readbacks:u64}
@@ -93,7 +95,8 @@ pub fn register_companion_assets(app: &mut App, data_dir: &std::path::Path) -> a
 /// Call after DefaultPlugins; owns only the engine and one character-preview camera.
 pub fn add_companion_renderer(app: &mut App, _data_dir: PathBuf) {
     crate::companion_hit_mask::install(app);
-    app.init_resource::<CompanionMaskRate>()
+    app.init_resource::<CompanionDerivedActivity>()
+        .init_resource::<CompanionMaskRate>()
         .init_resource::<CompanionRenderCounters>()
         .init_resource::<CompanionFrame>()
         .init_resource::<CompanionLocalGesture>()
