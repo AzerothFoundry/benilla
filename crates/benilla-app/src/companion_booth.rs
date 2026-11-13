@@ -178,8 +178,7 @@ fn sync(
     time: Res<Time>,
     mut sleep_blend: Local<f32>,
     mut last: Local<u64>,
-    mut framing: Local<Option<super::PortraitAnchors>>,
-    mut camera_key: Local<Option<(u64,u32,u32,u32,u32)>>,
+    caches: (Local<Option<super::PortraitAnchors>>,Local<Option<(u64,u32,u32,u32,u32)>>),
     render_data: (
         crate::entities::companion_effects::CompanionAttachedModels,
         Res<benilla_world::doodad_anim::UvAnimMaterials>,
@@ -189,6 +188,7 @@ fn sync(
     ),
 ) {
     let (preview, frame, mut visual) = appearance_state;
+    let (mut framing,mut camera_key)=caches;
     let (attached, uv, tint, light, mut stats) = render_data;
     let animated = |h: &Handle<benilla_assets::materials::WowModelMaterial>| {
         uv.0.contains_key(&h.id()) || tint.0.contains_key(&h.id())
