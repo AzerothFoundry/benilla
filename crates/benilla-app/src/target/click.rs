@@ -781,6 +781,9 @@ impl Dispatch<'_, '_> {
             })
         });
         if let Some(refusal) = refusal {
+            super::go_trace::line(format_args!(
+                "playerRefusal guid={guid:#x} reason={refusal:?}"
+            ));
             debug!("right-click gameobject {guid:#x}: refused, {refusal:?} (type {go_type})");
             if let Some(key) = refusal.error_key() {
                 self.feedback
@@ -858,19 +861,23 @@ impl Dispatch<'_, '_> {
         ) {
             // No opener spell, and the lock arm (flagged locked) did not already refuse.
             GoAction::Use if destroyed => {
+                super::go_trace::line(format_args!("blocked destroyed guid={guid:#x}"));
                 self.feedback
                     .errors
                     .push(crate::ui_action::UiError::key("ERR_USE_DESTROYED"));
             }
             GoAction::Refuse(_) if destroyed && !flag_locked => {
+                super::go_trace::line(format_args!("blocked destroyed guid={guid:#x}"));
                 self.feedback
                     .errors
                     .push(crate::ui_action::UiError::key("ERR_USE_DESTROYED"));
             }
             GoAction::Use | GoAction::OpenLock(_) | GoAction::OpenByKey(_) if !in_reach => {
+                super::go_trace::line(format_args!("blocked range guid={guid:#x} walk={walk}"));
                 self.walk_to_object(entity, guid, go_type, walk);
             }
             GoAction::Use => {
+                super::go_trace::line(format_args!("queue GameObjUse guid={guid:#x}"));
                 debug!("right-click gameobject use: {guid:#x}");
                 if benilla_assets::trace::enabled_for("use") {
                     benilla_assets::trace::line(
@@ -883,6 +890,9 @@ impl Dispatch<'_, '_> {
             // Both opener arms queue for the one cast path, as the reference reaches `TryCast
             // 0x6e4b60` from the use sender (`0x5f35c0`) like a button press.
             GoAction::OpenLock(spell_id) => {
+                super::go_trace::line(format_args!(
+                    "queue OpenLock spell={spell_id} guid={guid:#x}"
+                ));
                 debug!("right-click gameobject open-lock: cast {spell_id} at {guid:#x}");
                 self.feedback
                     .casts
@@ -903,6 +913,10 @@ impl Dispatch<'_, '_> {
                     .push(crate::ui_action::ClickCast::Key(it));
             }
             GoAction::Refuse(err) => {
+                super::go_trace::line(format_args!(
+                    "refuse guid={guid:#x} errorKey={:?}",
+                    err.as_ref().map(|e| e.key)
+                ));
                 debug!("right-click gameobject {guid:#x}: locked, refused ({err:?})");
                 if let Some(err) = err {
                     self.feedback.errors.push(err);
@@ -1313,6 +1327,14 @@ pub(super) fn select_on_click(mut c: ClickSelect, held: Option<Res<PayloadHeld>>
 /// what each select owes paid in place, with nobody to signal.
 #[cfg(test)]
 pub(super) fn act_on_right_click(mut c: ClickDispatch, held: Option<Res<PayloadHeld>>) {
+    super::go_trace::line(format_args!(
+        "rightClick object={:?} hovered={:?} cursor={:?} unable={} charmed={}",
+        c.press.object.guid,
+        c.press.hovered.guid,
+        c.press.cursor.kind,
+        c.press.cursor.unable,
+        c.charmed()
+    ));
     if c.charmed() {
         return;
     }
@@ -1354,6 +1376,30 @@ fn interact_legs(
     let (hovered, hovered_object, cursor) = (&press.hovered, &press.object, &press.cursor);
     let walk = dispatch.auto.can_auto_interact();
     let self_mounted = dispatch.mounted();
+    if let Some(guid) = hovered_object.guid {
+        let go = hovered_object
+            .target
+            .and_then(|e| dispatch.stores.get(e).ok())
+            .map(|(s, a)| (s, crate::go_anim::go_state(a, s)));
+        let me = dispatch
+            .me()
+            .and_then(|(e, ..)| dispatch.stores.get(e).ok())
+            .map(|(s, _)| s);
+        super::go_trace::snapshot(
+            &dispatch.go_inputs,
+            &dispatch.player_actions.openers,
+            dispatch.player_actions.spells.contains(&21651),
+            go,
+            me,
+            guid,
+        );
+        super::go_trace::line(format_args!(
+            "interact guid={guid:#x} nearest={} cursor={:?} unable={} mounted={self_mounted}",
+            go_is_nearest(hovered, hovered_object),
+            cursor.kind,
+            cursor.unable
+        ));
+    }
     // A GameObject is used, never falling through to units: `OnUse 0x5f8660` gates on
     // highlightable (our `Point` cursor, silent), then usable (`0x5f3130`), whose lock arm toasts
     // first, even out of range.
@@ -1376,6 +1422,10 @@ fn interact_legs(
             );
         }
         if cursor.kind == cursor_mode::CursorKind::Point {
+            super::go_trace::line(format_args!(
+                "blocked cursorPoint object={:?}; no dispatch",
+                hovered_object.guid
+            ));
             return None;
         }
         let (Some(entity), Some(guid)) = (hovered_object.target, hovered_object.guid) else {
@@ -1764,7 +1814,7 @@ fn act_on_arrival_with(
 
 /// The right-click action for a hovered GameObject, chosen by its lock ([`super::lock`]).
 pub(crate) enum GoAction {
-    /// No lock, or no lock data: `CMSG_GAMEOBJ_USE`.
+    /// Confirmed lockless object: `CMSG_GAMEOBJ_USE`.
     Use,
     /// A lock a known skill spell opens (`OPEN_LOCK`): cast it at the object.
     OpenLock(u32),
@@ -1785,8 +1835,8 @@ enum KeyFact {
 }
 
 /// A hovered GameObject's action from its lock, the reference's use sender `0x5f33e0` over the
-/// resolver [`super::lock::resolve_lock`] (`0x5f83d0`) the cursor's `usable` also asks. An uncached
-/// template or no `Lock.dbc` counts as lockless.
+/// resolver [`super::lock::resolve_lock`] (`0x5f83d0`) the cursor's `usable` also asks. Incomplete
+/// metadata waits instead of guessing the wire verb.
 pub(crate) fn resolve_go_action(
     guid: u64,
     inputs: &mut GoLockInputs,
@@ -1795,15 +1845,24 @@ pub(crate) fn resolve_go_action(
     me_store: Option<&ObjectStore>,
     net: &NetCommands,
 ) -> GoAction {
+    if !super::go_metadata::ready(inputs, guid, net) {
+        super::go_trace::line(format_args!(
+            "metadataNotReady guid={guid:#x}; no use/cast queued"
+        ));
+        debug!("gameobject {guid:#x}: metadata not ready; retry after the query/data load");
+        return GoAction::Refuse(Some(crate::ui_action::UiError::key("RETRIEVING_DATA")));
+    }
     let Some(tmpl) = inputs.templates.of_guid(&inputs.objects, guid) else {
-        return GoAction::Use;
+        return GoAction::Refuse(None);
     };
+    if tmpl.lock_id == 0 {
+        return GoAction::Use;
+    }
     let Some(locks) = inputs.locks.as_deref() else {
-        return GoAction::Use;
+        return GoAction::Refuse(None);
     };
-    // A lockId with no row is no lock (`0x5f8180` returns null).
-    let Some(slots) = locks.0.slots(tmpl.lock_id).filter(|_| tmpl.lock_id != 0) else {
-        return GoAction::Use;
+    let Some(slots) = locks.0.slots(tmpl.lock_id) else {
+        return GoAction::Refuse(None);
     };
     let facts = super::lock::go_facts(go);
     let mut matched = None;
@@ -3430,10 +3489,24 @@ mod tests {
     const CHEST: u64 = 0xC4E5;
 
     fn spawn_object(world: &mut World, go_type: u32, at: Vec3) -> Entity {
+        // Ordinary interaction fixtures have confirmed metadata, unless a test supplied it.
+        if world
+            .resource::<crate::go_templates::GameObjectTemplates>()
+            .name(77)
+            .is_none()
+        {
+            world
+                .resource_mut::<crate::go_templates::GameObjectTemplates>()
+                .insert(77, go_type, "Object".into(), &[0; 24]);
+        }
         let object = world
             .spawn((
                 Guid(CHEST),
-                store(&[(GO_TYPE_FIELD, go_type)]),
+                store(&[
+                    (2, 0x21),
+                    (benilla_protocol::field::FIELD_OBJECT_ENTRY, 77),
+                    (GO_TYPE_FIELD, go_type),
+                ]),
                 Transform::from_translation(at),
                 crate::net::NetEntity {
                     kind: benilla_protocol::EntityKind::GameObject,
@@ -3797,6 +3870,7 @@ mod tests {
                 .insert(77, c.go_type, "Object".into(), &data);
             let object = spawn_object(&mut world, c.go_type, Vec3::new(2.0, 0.0, 0.0));
             world.entity_mut(object).insert(store(&[
+                (2, 0x21),
                 (GO_TYPE_FIELD, c.go_type),
                 (FIELD_OBJECT_ENTRY, 77),
                 (F_GO_FLAGS_STATE, c.state),
@@ -3850,6 +3924,7 @@ mod tests {
             .insert(77, 10, "Object".into(), &data);
         let object = spawn_object(&mut world, 0, Vec3::new(2.0, 0.0, 0.0));
         world.entity_mut(object).insert(store(&[
+            (2, 0x21),
             (GO_TYPE_FIELD, 0),
             (FIELD_OBJECT_ENTRY, 77),
             (14, 1),
@@ -3984,6 +4059,78 @@ mod tests {
             .map(|e| e.key)
             .collect();
         (cursor.unable, used, keys)
+    }
+
+    #[test]
+    fn a_second_cold_entry_waits_then_uses_its_opener_without_a_use_packet() {
+        use benilla_protocol::field::FIELD_OBJECT_ENTRY;
+        let (mut world, first, rx) = go_world(1, 2.0, Some((21651, 5.0)), 1, false);
+        interact_with(&mut world, first);
+        assert_eq!(world.resource::<crate::ui_action::ClickCasts>().0.len(), 1);
+        world
+            .resource_mut::<crate::ui_action::ClickCasts>()
+            .0
+            .clear();
+        // A different streamed banner entry has not answered its template query yet.
+        world.entity_mut(first).insert(store(&[
+            (2, 0x21),
+            (GO_TYPE_FIELD, 1),
+            (FIELD_OBJECT_ENTRY, 78),
+            (14, 1),
+        ]));
+        interact_with(&mut world, first);
+        assert!(world
+            .resource::<crate::ui_action::ClickCasts>()
+            .0
+            .is_empty());
+        let sent: Vec<_> = rx.try_iter().collect();
+        assert!(sent
+            .iter()
+            .any(|p| matches!(p, ClientCommand::GameObjectQuery { entry: 78, .. })));
+        assert!(!sent
+            .iter()
+            .any(|p| matches!(p, ClientCommand::GameObjUse { .. })));
+        let mut data = [0; 24];
+        data[1] = 55;
+        world
+            .resource_mut::<crate::go_templates::GameObjectTemplates>()
+            .insert(78, 1, "Second banner".into(), &data);
+        interact_with(&mut world, first);
+        assert!(matches!(
+            world
+                .resource::<crate::ui_action::ClickCasts>()
+                .0
+                .as_slice(),
+            [crate::ui_action::ClickCast::AtObject {
+                spell_id: 21651,
+                go_guid: CHEST
+            }]
+        ));
+        assert!(!rx
+            .try_iter()
+            .any(|p| matches!(p, ClientCommand::GameObjUse { .. })));
+    }
+
+    #[test]
+    fn a_declared_lock_never_falls_back_to_use_when_local_lock_data_is_missing() {
+        for missing_catalog in [true, false] {
+            let (mut world, object, rx) = go_world(1, 2.0, Some((21651, 5.0)), 1, false);
+            if missing_catalog {
+                world.remove_resource::<crate::go_templates::Locks>();
+            } else {
+                world.insert_resource(crate::go_templates::Locks(
+                    benilla_formats::LockCatalog::from_rows([]),
+                ));
+            }
+            interact_with(&mut world, object);
+            assert!(!rx
+                .try_iter()
+                .any(|p| matches!(p, ClientCommand::GameObjUse { .. })));
+            assert!(world
+                .resource::<crate::ui_action::ClickCasts>()
+                .0
+                .is_empty());
+        }
     }
 
     /// `usable 0x5f3130` tests the distance against the handler's range (`0x5f3346`): a door's

@@ -2062,3 +2062,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "companion")]
+#[path = "../../companion_spell_visuals.rs"]
+pub(crate) mod companion;

@@ -1606,6 +1606,19 @@ impl UiScript {
             .is_some_and(|h| model.arena.frame(h).is_some_and(|f| f.effective_visible))
     }
 
+    /// Host-side identity and bounds for the native IME candidate window. No Lua API is added.
+    pub fn focused_editbox_bounds(&self) -> Option<(FrameHandle, Rect)> {
+        let model = self.model_ref();
+        let handle = model.focused_editbox?;
+        if !model.arena.frame(handle)?.effective_visible {
+            return None;
+        }
+        Some((
+            handle,
+            model.layout_space().rect_to_root(model.frame_rect(handle)?),
+        ))
+    }
+
     /// The focused EditBox's name, unfiltered by visibility, unlike [`Self::has_keyboard_focus`].
     /// Host-side only: 1.12's EditBox table has `SetFocus`/`ClearFocus` and no getter.
     pub fn focused_editbox_name(&self) -> Option<String> {

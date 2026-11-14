@@ -116,13 +116,20 @@ fn client() -> Client {
             ]),
         ),
     ];
+    world
+        .resource_mut::<crate::go_templates::GameObjectTemplates>()
+        .insert(77, 3, "Chest".into(), &[0; 24]);
     let chest = world
         .spawn((
             Guid(CHEST),
             unit(EntityKind::GameObject),
             Transform::from_xyz(0.0, 0.0, 2.0),
             GlobalTransform::default(),
-            fields(&[(F_GO_TYPE, 3)]),
+            fields(&[
+                (2, 0x21),
+                (benilla_protocol::field::FIELD_OBJECT_ENTRY, 77),
+                (F_GO_TYPE, 3),
+            ]),
         ))
         .id();
     world

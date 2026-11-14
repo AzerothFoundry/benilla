@@ -131,6 +131,8 @@ impl Default for WowLightData {
 
 /// The persistent storage buffer every material binds, created by [`new_shared_light_buffer`] and
 /// extracted to the render world; a `Buffer` clone shares the GPU resource.
+/// Published render binding for custom preview materials too: callers pass the handle onward;
+/// the engine owns its storage layout and uploads. No gameplay state crosses this interface.
 #[derive(Resource, Clone, ExtractResource)]
 pub struct SharedLightBuffer(pub Buffer);
 

@@ -597,6 +597,8 @@ pub(crate) struct GlueMgr {
     auth_final: bool,
     /// The world connection is up (`[svc+0x1b00]`).
     connected: bool,
+    /// The last accepted world authentication's billing words (ClientServices +0x1af4).
+    billing: benilla_protocol::messages::Billing,
     /// `ChangeRealm` dropped a live world link to connect to another realm (`[0xb41d9c]`, set at
     /// `0x46b235`): the connect waits for the drop's handler (`0x46c56f`-`0x46c5bf`).
     reconnect: bool,
@@ -2221,6 +2223,11 @@ pub(crate) fn drive_glue_mgr(
             let generation = crate::net::LoginAbandon::now(asks.abandon.as_deref());
             for msg in news.world_auths.read() {
                 if msg.generation == generation {
+                    mgr.billing = msg.billing;
+                    if let Some(script) = script.as_deref_mut() {
+                        let b = msg.billing;
+                        script.set_billing(b.time_remaining, b.time_rested, b.plan_flags);
+                    }
                     mgr.on_world_authenticated(msg.realm.clone(), msg.epoch);
                 }
             }

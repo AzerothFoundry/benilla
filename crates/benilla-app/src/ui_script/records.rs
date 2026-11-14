@@ -23,6 +23,8 @@ use crate::textinput::keymap::Mods;
 #[derive(Clone, Debug)]
 pub(crate) enum Record {
     Key(KeyboardInput),
+    /// Native composition events retain their order relative to keys and clicks.
+    Ime(bevy::window::Ime),
     Button {
         button: MouseButton,
         state: ButtonState,
@@ -99,14 +101,13 @@ fn mods_of(held: &[KeyCode]) -> Mods {
 pub(crate) fn collect_input_records(
     mut events: MessageReader<WindowEvent>,
     keys: Res<ButtonInput<KeyCode>>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut records: ResMut<InputRecords>,
 ) {
     let events: Vec<&WindowEvent> = events.read().collect();
-    let now = window.single().ok().and_then(Window::cursor_position);
-    let base_scale = window
-        .single()
-        .map_or(1.0, |w| w.resolution.base_scale_factor());
+    let primary = window.single().ok();
+    let now = primary.and_then(|(_, window)| window.cursor_position());
+    let base_scale = primary.map_or(1., |(_, window)| window.resolution.base_scale_factor());
     let moved = events
         .iter()
         .any(|e| matches!(e, WindowEvent::CursorMoved(_) | WindowEvent::CursorLeft(_)));
@@ -173,6 +174,21 @@ pub(crate) fn collect_input_records(
                     mods: mods_of(&held),
                     at,
                 });
+            }
+            WindowEvent::Ime(event) => {
+                let id = match event {
+                    bevy::window::Ime::Preedit { window, .. }
+                    | bevy::window::Ime::Commit { window, .. }
+                    | bevy::window::Ime::Enabled { window }
+                    | bevy::window::Ime::Disabled { window } => *window,
+                };
+                if primary.is_some_and(|(window, _)| window == id) {
+                    out.push(InputRecord {
+                        record: Record::Ime(event.clone()),
+                        mods: mods_of(&held),
+                        at,
+                    });
+                }
             }
             WindowEvent::MouseButtonInput(ev) => out.push(InputRecord {
                 record: Record::Button {
@@ -320,6 +336,7 @@ mod tests {
                     Record::Key(k) => format!("{:?}", k.key_code),
                     Record::Button { state, .. } => format!("{state:?}"),
                     Record::Move => "Move".to_owned(),
+                    Record::Ime(_) => "Ime".to_owned(),
                     Record::Wheel { up } => format!("Wheel{}", if *up { "Up" } else { "Down" }),
                 };
                 format!("{kind}@{:?}", r.at.map(|a| a.x))

@@ -110,7 +110,22 @@ impl PetLive<'_, '_> {
             }
             None => (None, None, Vec::new()),
         };
-        crate::ui_pet_stats::stats_for(pet, self.player(), self.stat_tables.as_deref(), family)
+        let mut stats =
+            crate::ui_pet_stats::stats_for(pet, self.player(), self.stat_tables.as_deref(), family);
+        // PetStable.lua:164 reads the icon as a predicate for UnitCreatureFamily("pet").
+        // Keep their family record coherent while the action bar and SUMMON arrive separately.
+        let current = self.player().and_then(|s| s.0.unit_pet_guid());
+        if current != Some(bar.spells.pet_guid) {
+            stats.1.icon = self.names.as_deref().and_then(|names| {
+                crate::ui_pet_stats::family_for(
+                    current.and_then(|guid| self.unit(guid)),
+                    names,
+                    self.family_tables.as_deref(),
+                )
+                .1
+            });
+        }
+        stats
     }
 
     /// The menu's predicates: the pet summoned by us alone, no charmed-by leg (`0x4be500`).

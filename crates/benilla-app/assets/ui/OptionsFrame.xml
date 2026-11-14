@@ -119,6 +119,7 @@
 
         -- The wash at the era atlas size, in the 1.14 hover steel-blue.
         function BenillaOptionsCategoryRow_OnLoad(row, key, label)
+            label = BenillaUIString(label)
             row.categoryKey = key
             row.pageTitle = label
             row:SetText(label)
@@ -346,7 +347,7 @@
             BenillaKeyBindingsPage.searchPainted = nil
             BenillaKeyBindings_SetSelected(nil)
             BenillaOptionsFrameContainerUnbind:Hide()
-            BenillaOptionsFrameContainerTitle:SetText("Search Results")
+            BenillaOptionsFrameContainerTitle:SetText(BenillaUIString("Search Results"))
             BenillaOptionsFrameContainerDefaults:Hide()
 
             local order, groups = BenillaOptionsSearch_FindMatches(text)
@@ -456,6 +457,13 @@
             .. "which it could only do in exclusive fullscreen. benilla applies it to the "
             .. "finished image instead, so it works in both display modes."
 
+        if GetLocale() == "zhCN" then
+            BENILLA_TOOLTIP_RENDER_SCALE = "以低于或高于窗口分辨率的比例渲染三维世界，界面分辨率不受影响。\n\n低于100%可提高帧率；高于100%会进行超采样，以性能换取更平滑的边缘。点击应用后生效。"
+            BENILLA_TOOLTIP_BACKGROUND_SOUND = "切换到其他窗口时继续播放游戏声音。\n\n关闭此选项后，切换窗口会静音，返回时恢复。静音期间声音仍会继续运行，因此返回时较长的音效可能已经结束。"
+            BENILLA_TOOLTIP_DISPLAY_MODE = "窗口化（全屏）使用无边框窗口铺满屏幕；窗口化使用普通窗口。\n\n不提供独占全屏模式。"
+            BENILLA_TOOLTIP_BRIGHTNESS = "调整整个画面的明暗，适用于夜晚、洞穴和室内场景。\n\n使用与原版伽马校正相同的调整方式，但作用于最终图像，因此两种窗口模式都可使用。"
+        end
+
         BENILLA_OPTIONS_PAGE_ROWS = {
             -- The era Controls order first; the rest follow their 1.12 box's columns.
             Controls = {
@@ -515,6 +523,7 @@
 
         -- `tip` is a GlobalStrings key, resolved at hover as UIOptionsFrame.lua:265 does.
         function BenillaOptionsRow_OnLoad(row, cvar, label, tip, child)
+            label = BenillaUIString(label)
             row.cvar = cvar
             row.tip = tip
             row.searchTag = string.upper(label)
@@ -640,6 +649,7 @@
 
         -- ── The dropdown rows: the 1.12 UIDropDownMenu kit ──
         function BenillaOptionsDropdownRow_Setup(row, entries)
+            for _, entry in ipairs(entries) do entry.text = BenillaUIString(entry.text) end
             row.entries = entries
             local dd = getglobal(row:GetName() .. "Dropdown")
             UIDropDownMenu_SetWidth(180, dd)
@@ -1298,7 +1308,7 @@
             </Layer>
             <Layer level="OVERLAY">
                 <!-- Not BenillaGameFontNormalMed1: GameMenuAdapters.xml declares it later. -->
-                <FontString name="$parentTitleText" inherits="GameFontNormal" text="Options">
+                <FontString name="$parentTitleText" inherits="GameFontNormal" text="BENILLA_LOCALIZED_OPTIONS">
                     <Anchors>
                         <Anchor point="TOP" relativeTo="$parentHeader"><Offset><AbsDimension x="0" y="-14"/></Offset></Anchor>
                     </Anchors>
@@ -1361,7 +1371,7 @@
                         </Texture>
                     </Layer>
                 </Layers>
-                <ButtonText name="$parentText" text="Game">
+                <ButtonText name="$parentText" text="BENILLA_LOCALIZED_GAME">
                     <Anchors><Anchor point="BOTTOM"><Offset><AbsDimension x="0" y="6"/></Offset></Anchor></Anchors>
                 </ButtonText>
                 <NormalFont inherits="GameFontHighlightSmall"/>
@@ -1385,7 +1395,7 @@
                         </Texture>
                     </Layer>
                 </Layers>
-                <ButtonText name="$parentText" text="AddOns">
+                <ButtonText name="$parentText" text="BENILLA_LOCALIZED_ADDONS">
                     <Anchors><Anchor point="BOTTOM"><Offset><AbsDimension x="0" y="4"/></Offset></Anchor></Anchors>
                 </ButtonText>
                 <NormalFont inherits="GameFontNormalSmall"/>
@@ -1410,7 +1420,7 @@
                     <Frame name="$parentHeaderGameplay" inherits="BenillaOptionsCategoryHeaderTemplate">
                         <Anchors><Anchor point="TOPLEFT"/></Anchors>
                         <Scripts>
-                            <OnLoad>getglobal(this:GetName() .. "Label"):SetText("Gameplay")</OnLoad>
+                            <OnLoad>getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Gameplay"))</OnLoad>
                         </Scripts>
                     </Frame>
                     <Button name="$parentRowControls" inherits="BenillaOptionsCategoryRowTemplate">
@@ -1447,7 +1457,7 @@
                             <Anchor point="TOPLEFT" relativeTo="$parentRowNameplates" relativePoint="BOTTOMLEFT"><Offset><AbsDimension x="0" y="-22"/></Offset></Anchor>
                         </Anchors>
                         <Scripts>
-                            <OnLoad>getglobal(this:GetName() .. "Label"):SetText("System")</OnLoad>
+                            <OnLoad>getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("System"))</OnLoad>
                         </Scripts>
                     </Frame>
                     <Button name="$parentRowGraphics" inherits="BenillaOptionsCategoryRowTemplate">
@@ -1488,7 +1498,7 @@
                 </Layers>
                 <Frames>
                     <!-- On the Keybindings page, 1.12's Reset To Default behind a confirm. -->
-                    <Button name="$parentDefaults" inherits="BenillaOptionsRedButtonTemplate" text="Defaults">
+                    <Button name="$parentDefaults" inherits="BenillaOptionsRedButtonTemplate" text="BENILLA_LOCALIZED_DEFAULTS">
                         <Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-36" y="-16"/></Offset></Anchor></Anchors>
                         <Scripts>
                             <OnLoad>this:Disable()</OnLoad>
@@ -1555,7 +1565,7 @@
                             <Layers>
                                 <Layer level="OVERLAY">
                                     <!-- The no-match line, at the section header's seat. -->
-                                    <FontString name="$parentNoResults" inherits="GameFontHighlightLarge" justifyH="LEFT" hidden="true" text="No results found.">
+                                    <FontString name="$parentNoResults" inherits="GameFontHighlightLarge" justifyH="LEFT" hidden="true" text="BENILLA_LOCALIZED_NO_RESULTS_FOUND">
                                         <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="17" y="-28"/></Offset></Anchor></Anchors>
                                     </FontString>
                                 </Layer>
@@ -2922,55 +2932,55 @@
                                 <Button name="$parentSearchHeadControls" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Controls"
-                                        getglobal(this:GetName() .. "Label"):SetText("Controls")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Controls"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadAudio" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Audio"
-                                        getglobal(this:GetName() .. "Label"):SetText("Audio")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Audio"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadGraphics" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Graphics"
-                                        getglobal(this:GetName() .. "Label"):SetText("Graphics")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Graphics"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadCombat" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Combat"
-                                        getglobal(this:GetName() .. "Label"):SetText("Combat")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Combat"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadActionBars" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "ActionBars"
-                                        getglobal(this:GetName() .. "Label"):SetText("Action Bars")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Action Bars"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadInterface" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Interface"
-                                        getglobal(this:GetName() .. "Label"):SetText("Interface")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Interface"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadChat" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Chat"
-                                        getglobal(this:GetName() .. "Label"):SetText("Chat")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Chat"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadNameplates" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Nameplates"
-                                        getglobal(this:GetName() .. "Label"):SetText("Nameplates")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Nameplates"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <Button name="$parentSearchHeadKeybindings" inherits="BenillaOptionsSearchHeadTemplate">
                                     <Scripts><OnLoad>
                                         this.categoryKey = "Keybindings"
-                                        getglobal(this:GetName() .. "Label"):SetText("Keybindings")
+                                        getglobal(this:GetName() .. "Label"):SetText(BenillaUIString("Keybindings"))
                                     </OnLoad></Scripts>
                                 </Button>
                                 <!-- BENILLA_KEYBINDINGS_SEARCH_ROWS (8) frames. -->
@@ -3027,7 +3037,7 @@
                     </Layer>
                     <Layer level="ARTWORK">
                         <!-- The placeholder (the era instructions label, tinted 0.35). -->
-                        <FontString name="$parentInstructions" inherits="GameFontDisableSmall" justifyH="LEFT" text="Search">
+                        <FontString name="$parentInstructions" inherits="GameFontDisableSmall" justifyH="LEFT" text="BENILLA_LOCALIZED_SEARCH">
                             <Anchors>
                                 <Anchor point="TOPLEFT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor>
                                 <Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="-20" y="0"/></Offset></Anchor>
@@ -3078,7 +3088,7 @@
             </EditBox>
 
             <!-- ── Close: no corner X; the red button and ESC close the window ── -->
-            <Button name="$parentCloseButton" inherits="BenillaOptionsRedButtonTemplate" text="Close">
+            <Button name="$parentCloseButton" inherits="BenillaOptionsRedButtonTemplate" text="BENILLA_LOCALIZED_CLOSE">
                 <Anchors><Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="-16" y="16"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnClick>
@@ -3088,7 +3098,7 @@
                 </Scripts>
             </Button>
             <!-- The era Apply, shown with a pending edit. -->
-            <Button name="$parentApplyButton" inherits="BenillaOptionsRedButtonTemplate" text="Apply" hidden="true">
+            <Button name="$parentApplyButton" inherits="BenillaOptionsRedButtonTemplate" text="BENILLA_LOCALIZED_APPLY" hidden="true">
                 <Anchors><Anchor point="RIGHT" relativeTo="$parentCloseButton" relativePoint="LEFT"><Offset><AbsDimension x="-2" y="0"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnLoad>this:Disable()</OnLoad>

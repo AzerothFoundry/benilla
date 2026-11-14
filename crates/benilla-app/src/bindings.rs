@@ -1051,7 +1051,7 @@ fn dispatch_records(
                     };
                     legs.button(s.as_deref_mut(), *button, *state, r.mods, reach);
                 }
-                Record::Move => {}
+                Record::Move | Record::Ime(_) => {}
                 Record::Wheel { up } => legs.wheel(s.as_deref_mut(), r.mods, *up),
             }
         }

@@ -529,6 +529,7 @@ mod tests {
             ClientState::Login
         );
         app.world_mut().write_message(WorldAuthMessage {
+            billing: Default::default(),
             realm: test_realm(),
             epoch: 1,
             generation: 0,
@@ -583,6 +584,7 @@ mod tests {
         app.insert_resource(crate::net::CharPick(tx.into()));
         let send = |app: &mut App, generation: u64| {
             app.world_mut().write_message(WorldAuthMessage {
+                billing: Default::default(),
                 realm: test_realm(),
                 epoch: 1,
                 generation,
