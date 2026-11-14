@@ -114,6 +114,7 @@ pub fn add_companion_renderer(app: &mut App, _data_dir: PathBuf) {
     crate::entities::companion_preview(app);
     crate::entities::companion_effects::install_spell_visuals(app);
     crate::portrait::companion_booth::install(app);
+    crate::portrait::companion_selector::install(app);
 }
 
 pub use crate::companion_hit_mask::CompanionHitMask;
@@ -121,3 +122,5 @@ pub use crate::companion_hit_mask::CompanionHitMask;
 /// Visual-only card/particle geometry is never a native pointer target.
 #[derive(Component)]
 pub(crate) struct CompanionHitExcluded;
+
+pub use crate::portrait::companion_selector::{CompanionSelectorBackground,CompanionSelectorWindow,scene_token};

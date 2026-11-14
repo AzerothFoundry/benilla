@@ -38,7 +38,7 @@ pub(crate) fn install(app: &mut App) {
             load_animation_data.after(benilla_assets::AssetSet::Open),
         ),
     )
-    .add_systems(Update, (feed, sync, animate).chain())
+    .add_systems(Update, (feed, sync, animate).chain().in_set(super::companion_selector::CompanionAvatarPass))
     .add_systems(
         PostUpdate,
         super::booth::face_booth_billboards.after(bevy::transform::TransformSystems::Propagate),

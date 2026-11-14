@@ -11,6 +11,10 @@ use bevy::camera::{OrthographicProjection, PerspectiveProjection};
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
 use bevy::window::PrimaryWindow;
+#[cfg(feature="companion")]
+type GlueWindowFilter = Or<(With<PrimaryWindow>,With<super::companion_selector::CompanionSelectorWindow>)>;
+#[cfg(not(feature="companion"))]
+type GlueWindowFilter = With<PrimaryWindow>;
 
 use crate::entities::Creatures;
 use benilla_assets::materials::WowModelMaterial;
@@ -884,7 +888,7 @@ pub(super) fn sync_glue_scene(
     mut images: ResMut<Assets<Image>>,
     anim_data: Option<Res<crate::creature_anim::AnimData>>,
     mut cams: Query<(&BoothCam, &mut Transform, &mut Projection)>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<&Window, GlueWindowFilter>,
     device: Res<bevy::render::renderer::RenderDevice>,
     queue: Res<bevy::render::renderer::RenderQueue>,
     // One tuple for the 16-SystemParam ceiling.
@@ -936,7 +940,7 @@ pub(super) fn sync_glue_scene(
 
     // The target is the window's, before the file resolves; a pane is a viewport inside it
     // ([`pillarbox_glue_scene`]).
-    if let Ok(w) = window.single() {
+    if let Some(w) = window.iter().max_by_key(|w| w.title == "选择角色") {
         resize_target(
             &mut images,
             &booth.target,
@@ -1266,7 +1270,7 @@ pub(super) fn sync_glue_scene(
     // The installed camera owns the booth camera while the scene shows, every frame: the pane's
     // camera of the file's table, or with none the orthographic leg (`0x76ceeb` installs no
     // camera, `0x76ce80(NULL)`), never the last scene's aim.
-    let w = window.single().ok();
+    let w = window.iter().max_by_key(|w| w.title == "选择角色");
     let pane = w
         .zip(preview.pane)
         .and_then(|(w, pane)| stock_pane_view(w.physical_width(), w.physical_height(), pane));
@@ -1422,10 +1426,10 @@ fn scene_vert_fov(fov: f32, window_aspect: f32, pane: Option<super::framing::Pan
 /// window; writes only on change.
 pub(super) fn pillarbox_glue_scene(
     preview: Res<GluePreview>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<&Window, GlueWindowFilter>,
     mut cams: Query<(&BoothCam, &mut Camera)>,
 ) {
-    let Ok(w) = window.single() else {
+    let Some(w) = window.iter().max_by_key(|w| w.title == "选择角色") else {
         return;
     };
     let full_h = w.physical_height().max(1);
