@@ -14,6 +14,8 @@ pub struct WowSkin {
     disabled: TextureHandle,
     highlight: TextureHandle,
     role_highlight: TextureHandle,
+    selector_background: TextureHandle,
+    selector_border: TextureHandle,
     selector_logo: Option<TextureHandle>,
     selector_horde: Option<TextureHandle>,
     selector_alliance: Option<TextureHandle>,
@@ -83,9 +85,30 @@ impl WowSkin {
             down: texture("Interface\\Buttons\\UI-Panel-Button-Down")?,
             disabled: texture("Interface\\Buttons\\UI-Panel-Button-Disabled")?,
             highlight: texture("Interface\\Buttons\\UI-Panel-Button-Highlight")?,
-            role_highlight: texture(
-                "Interface\\Glues\\CharacterSelect\\Glues-CharacterSelect-Highlight",
-            )?,
+            selector_background: texture("Interface\\Glues\\Common\\Glue-Tooltip-Background")?,
+            selector_border: texture("Interface\\Glues\\Common\\Glue-Tooltip-Border")?,
+            role_highlight: {
+                let bytes = chain
+                    .read("Interface\\Glues\\CharacterSelect\\Glue-CharacterSelect-Highlight.blp")
+                    .map_err(|e| e.to_string())?;
+                let decoded = benilla_blp::decode(&bytes).map_err(|e| format!("{e:?}"))?;
+                let mip = decoded.mips.first().ok_or("highlight has no mip")?;
+                let mut pixels = mip.rgba.clone();
+                for p in pixels.chunks_exact_mut(4) {
+                    for c in 0..3 {
+                        p[c] = (p[c] as u16 * p[3] as u16 / 255) as u8;
+                    }
+                    p[3] = 0;
+                }
+                ctx.load_texture(
+                    "stock-selector-additive",
+                    egui::ColorImage::from_rgba_premultiplied(
+                        [mip.width as usize, mip.height as usize],
+                        &pixels,
+                    ),
+                    egui::TextureOptions::LINEAR,
+                )
+            },
             check_up: texture("Interface\\Buttons\\UI-CheckBox-Up")?,
             check_down: texture("Interface\\Buttons\\UI-CheckBox-Down")?,
             check_mark: texture("Interface\\Buttons\\UI-CheckBox-Check")?,
@@ -101,12 +124,12 @@ impl WowSkin {
             s.spacing.item_spacing = Vec2::new(10.0, 9.0);
             s.spacing.button_padding = Vec2::new(16.0, 6.0);
             s.spacing.interact_size.y = 26.0;
-            s.spacing.scroll=egui::style::ScrollStyle::solid();
-            s.spacing.scroll.bar_width=18.;
-            s.spacing.scroll.handle_min_length=36.;
-            s.visuals.widgets.inactive.bg_fill=Color32::from_rgb(105,79,36);
-            s.visuals.widgets.hovered.bg_fill=Color32::from_rgb(155,119,48);
-            s.visuals.widgets.active.bg_fill=Color32::from_rgb(190,148,55);
+            s.spacing.scroll = egui::style::ScrollStyle::solid();
+            s.spacing.scroll.bar_width = 18.;
+            s.spacing.scroll.handle_min_length = 36.;
+            s.visuals.widgets.inactive.bg_fill = Color32::from_rgb(105, 79, 36);
+            s.visuals.widgets.hovered.bg_fill = Color32::from_rgb(155, 119, 48);
+            s.visuals.widgets.active.bg_fill = Color32::from_rgb(190, 148, 55);
             s.visuals.dark_mode = true;
             s.visuals.override_text_color = Some(Color32::from_rgb(238, 231, 210));
             s.visuals.window_fill = Color32::TRANSPARENT;
@@ -124,29 +147,45 @@ impl WowSkin {
     }
     /// Paint before the frame's controls. Rect is the outer edge, with 32-point stock border.
     pub fn paint_frame(&self, ui: &egui::Ui, rect: Rect) {
+        self.paint_backdrop(
+            ui,
+            rect,
+            &self.background,
+            &self.border,
+            32.,
+            32.,
+            Color32::WHITE,
+            Color32::WHITE,
+        );
+    }
+    fn paint_backdrop(
+        &self,
+        ui: &egui::Ui,
+        rect: Rect,
+        bg: &TextureHandle,
+        border: &TextureHandle,
+        edge: f32,
+        tile: f32,
+        bg_tint: Color32,
+        border_tint: Color32,
+    ) {
         if rect.width() < 1.0 || rect.height() < 1.0 {
             return;
         }
         let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
         let background = rect.shrink(10.0);
-        tiles(
-            &painter,
-            self.background.id(),
-            background,
-            32.0,
-            |r, part| {
-                (
-                    r,
-                    [
-                        Pos2::new(0.0, 0.0),
-                        Pos2::new(part.x, 0.0),
-                        Pos2::new(part.x, part.y),
-                        Pos2::new(0.0, part.y),
-                    ],
-                )
-            },
-        );
-        let edge = 32.0f32.min(rect.width() / 2.0).min(rect.height() / 2.0);
+        tiles(&painter, bg.id(), background, tile, bg_tint, |r, part| {
+            (
+                r,
+                [
+                    Pos2::new(0.0, 0.0),
+                    Pos2::new(part.x, 0.0),
+                    Pos2::new(part.x, part.y),
+                    Pos2::new(0.0, part.y),
+                ],
+            )
+        });
+        let edge = edge.min(rect.width() / 2.0).min(rect.height() / 2.0);
         let corners = [
             (4, Rect::from_min_size(rect.left_top(), Vec2::splat(edge))),
             (
@@ -165,10 +204,10 @@ impl WowSkin {
         for (slice, r) in corners {
             quad(
                 &painter,
-                self.border.id(),
+                border.id(),
                 r,
                 atlas_uv(slice, 1.0, false),
-                Color32::WHITE,
+                border_tint,
             );
         }
         let sides = [
@@ -217,10 +256,10 @@ impl WowSkin {
                 };
                 quad(
                     &painter,
-                    self.border.id(),
+                    border.id(),
                     segment,
                     atlas_uv(slice, n / edge, horizontal),
-                    Color32::WHITE,
+                    border_tint,
                 );
                 at += n;
             }
@@ -228,6 +267,9 @@ impl WowSkin {
     }
     /// Standard egui keyboard/mouse activation and enabled semantics, with stock 3-piece artwork.
     pub fn button(&self, ui: &mut egui::Ui, label: &str) -> egui::Response {
+        self.button_width(ui, label, 0.)
+    }
+    pub fn button_width(&self, ui: &mut egui::Ui, label: &str, width: f32) -> egui::Response {
         let text_width = ui
             .painter()
             .layout_no_wrap(label.to_owned(), FontId::proportional(16.0), GOLD)
@@ -236,7 +278,7 @@ impl WowSkin {
         let response = ui.add(
             egui::Button::new(label)
                 .frame(false)
-                .min_size(Vec2::new((text_width + 32.0).max(80.0), 28.0)),
+                .min_size(Vec2::new((text_width + 32.0).max(80.0).max(width), 28.0)),
         );
         if ui.is_rect_visible(response.rect) {
             let enabled = ui.is_enabled();
@@ -278,85 +320,184 @@ impl WowSkin {
         }
         response
     }
-    pub fn paint_selector(&self,ui:&egui::Ui,rect:Rect,race:Option<u8>){
-        let canvas=rect.shrink(12.);let right=Rect::from_min_max(Pos2::new(canvas.right()-392.,canvas.top()+8.),canvas.right_bottom()-Vec2::splat(8.));
-        let left=Rect::from_min_max(canvas.left_top()+Vec2::new(24.,24.),Pos2::new(right.left()-20.,canvas.bottom()-24.));
-        if let Some(logo)=&self.selector_logo{
-            let target=Rect::from_center_size(Pos2::new(left.center().x,left.top()+left.height()*0.3),Vec2::new(left.width(),left.width()*0.5));
-            ui.painter().image(logo.id(),target,Rect::from_min_max(Pos2::ZERO,Pos2::new(1.,1.)),Color32::WHITE);
+    pub fn paint_selector(
+        &self,
+        ui: &egui::Ui,
+        rect: Rect,
+        race: Option<u8>,
+        scene: Option<egui::TextureId>,
+    ) {
+        let canvas = rect.shrink(12.);
+        if let Some(image) = scene {
+            ui.painter().image(
+                image,
+                canvas,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                Color32::WHITE,
+            );
         }
-        let faction=if matches!(race,Some(2|5|6|8)){self.selector_horde.as_ref()}else if race.is_some(){self.selector_alliance.as_ref()}else{None};
-        if let Some(image)=faction{
-            let target=Rect::from_center_size(Pos2::new(left.center().x,left.top()+left.height()*0.72),Vec2::splat(130.));
-            ui.painter().image(image.id(),target,Rect::from_min_max(Pos2::ZERO,Pos2::new(1.,1.)),Color32::from_white_alpha(160));
+        let right = Rect::from_min_max(
+            Pos2::new(canvas.right() - 392., canvas.top() + 8.),
+            canvas.right_bottom() - Vec2::splat(8.),
+        );
+        if let Some(logo) = &self.selector_logo {
+            let target =
+                Rect::from_min_size(canvas.min + Vec2::new(20., 16.), Vec2::new(250., 125.));
+            ui.painter().image(
+                logo.id(),
+                target,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                Color32::WHITE,
+            );
         }
-        ui.painter().rect_filled(right,8.,Color32::from_black_alpha(160));
-        ui.painter().rect_stroke(right,8.,egui::Stroke::new(1.,Color32::from_rgb(110,91,56)),egui::StrokeKind::Inside);
+        let faction = if matches!(race, Some(2 | 5 | 6 | 8)) {
+            self.selector_horde.as_ref()
+        } else if race.is_some() {
+            self.selector_alliance.as_ref()
+        } else {
+            None
+        };
+        if let Some(image) = faction {
+            let target = Rect::from_min_size(
+                Pos2::new(right.left() - 74., canvas.bottom() - 80.),
+                Vec2::splat(64.),
+            );
+            ui.painter().image(
+                image.id(),
+                target,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                Color32::from_white_alpha(160),
+            );
+        }
+        self.paint_backdrop(
+            ui,
+            right,
+            &self.selector_background,
+            &self.selector_border,
+            16.,
+            16.,
+            Color32::from_rgba_unmultiplied(23, 23, 23, 217),
+            Color32::from_rgb(204, 204, 204),
+        );
     }
     pub fn character_row(
         &self,
         ui: &mut egui::Ui,
         name: &str,
         subtitle: &str,
+        location: &str,
         selected: bool,
     ) -> egui::Response {
-        let (rect, response) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width().min(340.), 48.0), egui::Sense::click());
-        ui.painter().image(
-            self.background.id(),
-            rect,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
-            Color32::WHITE,
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width().min(340.), 52.0),
+            egui::Sense::click(),
         );
-        if selected {
+        if selected || response.hovered() {
             ui.painter().image(
                 self.role_highlight.id(),
-                rect,
+                rect.expand2(Vec2::new(0.,6.)),
                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                if selected {
+                    Color32::WHITE
+                } else {
+                    Color32::from_white_alpha(90)
+                },
+            );
+        }
+        ui.painter().text(
+            rect.left_top() + Vec2::new(20., 2.),
+            egui::Align2::LEFT_TOP,
+            name,
+            FontId::proportional(18.),
+            if response.hovered() {Color32::WHITE}else{Color32::from_rgb(255,199,0)},
+        );
+        if !subtitle.is_empty() {
+            ui.painter().text(
+                rect.left_top() + Vec2::new(20., 22.),
+                egui::Align2::LEFT_TOP,
+                subtitle,
+                FontId::proportional(11.),
                 Color32::WHITE,
             );
         }
         ui.painter().text(
-            rect.left_top() + Vec2::new(20., 10.),
+            rect.left_top() + Vec2::new(20., 37.),
             egui::Align2::LEFT_TOP,
-            name,
-            FontId::proportional(22.),
-            if selected {
-                GOLD
-            } else {
-                Color32::from_rgb(235, 225, 205)
-            },
+            location,
+            FontId::proportional(11.),
+            Color32::GRAY,
         );
-        if name != subtitle {
-            ui.painter().text(
-                rect.left_top() + Vec2::new(20., 31.),
-                egui::Align2::LEFT_TOP,
-                subtitle,
-                FontId::proportional(11.),
-                Color32::GRAY,
-            );
-        }
         response
     }
-    pub fn scale_slider(&self,ui:&mut egui::Ui,value:&mut f32)->egui::Response {
-        let (rect,mut response)=ui.allocate_exact_size(Vec2::new(180.,24.),egui::Sense::click_and_drag());
-        if (response.dragged()||response.clicked())&&response.interact_pointer_pos().is_some(){
-            let point=response.interact_pointer_pos().unwrap();*value=slider_value(point.x,rect.left()+8.,rect.right()-8.);response.mark_changed();
-        }
-        let track=Rect::from_center_size(rect.center(),Vec2::new(rect.width()-12.,6.));
-        ui.painter().rect_filled(track,2.,Color32::from_rgb(25,20,12));
-        ui.painter().rect_stroke(track,2.,egui::Stroke::new(1.,Color32::from_rgb(132,107,63)),egui::StrokeKind::Outside);
-        let x=egui::lerp((rect.left()+8.)..=(rect.right()-8.),((*value-25.)/375.).clamp(0.,1.));
-        ui.painter().image(self.slider_knob.id(),Rect::from_center_size(Pos2::new(x,rect.center().y),Vec2::new(24.,28.)),Rect::from_min_max(Pos2::ZERO,Pos2::new(1.,1.)),Color32::WHITE);response
+    pub fn scale_slider(&self, ui: &mut egui::Ui, value: &mut f32) -> egui::Response {
+        self.value_slider(ui, value, 25., 400.)
     }
-    pub fn scroll_art(&self,ui:&egui::Ui,inner:Rect,content:Vec2,offset:Vec2){
-        if content.y<=inner.height(){return;}
-        let track=Rect::from_min_size(Pos2::new(inner.right()+4.,inner.top()),Vec2::new(18.,inner.height()));
-        ui.painter().rect_filled(track,1.,Color32::from_rgb(15,12,8));
-        ui.painter().rect_stroke(track,1.,egui::Stroke::new(1.,Color32::from_rgb(110,96,74)),egui::StrokeKind::Inside);
-        let height=(inner.height()*inner.height()/content.y).max(36.).min(inner.height());
-        let y=track.top()+(track.height()-height)*(offset.y/(content.y-inner.height())).clamp(0.,1.);
-        ui.painter().image(self.scroll_knob.id(),Rect::from_min_size(Pos2::new(track.left(),y),Vec2::new(18.,height)),Rect::from_min_max(Pos2::ZERO,Pos2::new(1.,1.)),Color32::WHITE);
+    pub fn value_slider(
+        &self,
+        ui: &mut egui::Ui,
+        value: &mut f32,
+        min: f32,
+        max: f32,
+    ) -> egui::Response {
+        let (rect, mut response) =
+            ui.allocate_exact_size(Vec2::new(180., 24.), egui::Sense::click_and_drag());
+        if ui.is_enabled()
+            && (response.dragged() || response.clicked())
+            && response.interact_pointer_pos().is_some()
+        {
+            let point = response.interact_pointer_pos().unwrap();
+            *value = min
+                + (max - min) * ((point.x - rect.left() - 8.) / (rect.width() - 16.)).clamp(0., 1.);
+            response.mark_changed();
+        }
+        let track = Rect::from_center_size(rect.center(), Vec2::new(rect.width() - 12., 6.));
+        ui.painter()
+            .rect_filled(track, 2., Color32::from_rgb(25, 20, 12));
+        ui.painter().rect_stroke(
+            track,
+            2.,
+            egui::Stroke::new(1_f32, Color32::from_rgb(132, 107, 63)),
+            egui::StrokeKind::Outside,
+        );
+        let x = egui::lerp(
+            (rect.left() + 8.)..=(rect.right() - 8.),
+            ((*value - min) / (max - min)).clamp(0., 1.),
+        );
+        ui.painter().image(
+            self.slider_knob.id(),
+            Rect::from_center_size(Pos2::new(x, rect.center().y), Vec2::new(24., 28.)),
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+            Color32::WHITE,
+        );
+        response
+    }
+    pub fn scroll_art(&self, ui: &egui::Ui, inner: Rect, content: Vec2, offset: Vec2) {
+        if content.y <= inner.height() {
+            return;
+        }
+        let track = Rect::from_min_size(
+            Pos2::new(inner.right() + 4., inner.top()),
+            Vec2::new(18., inner.height()),
+        );
+        ui.painter()
+            .rect_filled(track, 1., Color32::from_rgb(15, 12, 8));
+        ui.painter().rect_stroke(
+            track,
+            1.,
+            egui::Stroke::new(1_f32, Color32::from_rgb(110, 96, 74)),
+            egui::StrokeKind::Inside,
+        );
+        let height = (inner.height() * inner.height() / content.y)
+            .max(36.)
+            .min(inner.height());
+        let y = track.top()
+            + (track.height() - height) * (offset.y / (content.y - inner.height())).clamp(0., 1.);
+        ui.painter().image(
+            self.scroll_knob.id(),
+            Rect::from_min_size(Pos2::new(track.left(), y), Vec2::new(18., height)),
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+            Color32::WHITE,
+        );
     }
     pub fn checkbox(&self, ui: &mut egui::Ui, checked: &mut bool, label: &str) -> egui::Response {
         let mut response = ui
@@ -375,7 +516,12 @@ impl WowSkin {
                 }
                 if r.hovered() {
                     // Stock highlight is additive; alpha compositing it hides the check.
-                    ui.painter().rect_stroke(rect.shrink(3.),2.,egui::Stroke::new(1.,GOLD),egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(
+                        rect.shrink(3.),
+                        2.,
+                        egui::Stroke::new(1_f32, GOLD),
+                        egui::StrokeKind::Inside,
+                    );
                 }
                 r.union(ui.add(egui::Label::new(label).sense(egui::Sense::click())))
             })
@@ -463,6 +609,7 @@ fn tiles(
     texture: egui::TextureId,
     rect: Rect,
     size: f32,
+    tint: Color32,
     uv: impl Fn(Rect, Vec2) -> (Rect, [Pos2; 4]),
 ) {
     let mut y = rect.top();
@@ -474,7 +621,7 @@ fn tiles(
                 Vec2::new(size.min(rect.right() - x), size.min(rect.bottom() - y)),
             );
             let (r, uv) = uv(r, r.size() / size);
-            quad(painter, texture, r, uv, Color32::WHITE);
+            quad(painter, texture, r, uv, tint);
             x += size;
         }
         y += size;
@@ -547,18 +694,122 @@ mod tests {
     }
 }
 
-fn slider_value(pointer:f32,left:f32,right:f32)->f32{25.+375.*((pointer-left)/(right-left).max(1.)).clamp(0.,1.)}
-#[cfg(test)]mod control_tests {use super::*;#[test]fn scale_track_clicks_clamp_and_interpolate(){assert_eq!(slider_value(-5.,0.,100.),25.);assert_eq!(slider_value(100.,0.,100.),400.);assert_eq!(slider_value(20.,0.,100.),100.);}}
+fn slider_value(pointer: f32, left: f32, right: f32) -> f32 {
+    25. + 375. * ((pointer - left) / (right - left).max(1.)).clamp(0., 1.)
+}
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+    #[test]
+    fn scale_track_clicks_clamp_and_interpolate() {
+        assert_eq!(slider_value(-5., 0., 100.), 25.);
+        assert_eq!(slider_value(100., 0., 100.), 400.);
+        assert_eq!(slider_value(20., 0., 100.), 100.);
+    }
+}
 
-#[cfg(test)]mod interaction_tests {
- use super::*;
- #[test]fn checkbox_hover_preserves_value_and_click_changes_it(){
-  let Ok(data)=std::env::var("WOW_DATA")else{return};let ctx=egui::Context::default();let skin=WowSkin::load(Path::new(&data),&ctx).unwrap();let mut checked=true;let mut rect=Rect::NOTHING;
-  let mut frame=|events:Vec<egui::Event>,checked:&mut bool|{
-   let _=ctx.run(egui::RawInput{events,..Default::default()},|ctx|{egui::CentralPanel::default().show(ctx,|ui|{rect=skin.checkbox(ui,checked,"头盔").rect;});});rect.center()
-  };
-  let point=frame(vec![],&mut checked);frame(vec![egui::Event::PointerMoved(point)],&mut checked);assert!(checked,"hover must never toggle");
-  frame(vec![egui::Event::PointerButton{pos:point,button:egui::PointerButton::Primary,pressed:true,modifiers:Default::default()}],&mut checked);
-  frame(vec![egui::Event::PointerButton{pos:point,button:egui::PointerButton::Primary,pressed:false,modifiers:Default::default()}],&mut checked);assert!(!checked,"click toggles once");
- }
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    #[test]
+    fn checkbox_hover_preserves_value_and_click_changes_it() {
+        let Ok(data) = std::env::var("WOW_DATA") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        let skin = WowSkin::load(Path::new(&data), &ctx).unwrap();
+        let mut checked = true;
+        let mut rect = Rect::NOTHING;
+        let mut frame = |events: Vec<egui::Event>, checked: &mut bool| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        rect = skin.checkbox(ui, checked, "头盔").rect;
+                    });
+                },
+            );
+            rect.center()
+        };
+        let point = frame(vec![], &mut checked);
+        frame(vec![egui::Event::PointerMoved(point)], &mut checked);
+        assert!(checked, "hover must never toggle");
+        frame(
+            vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+            &mut checked,
+        );
+        frame(
+            vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+            &mut checked,
+        );
+        assert!(!checked, "click toggles once");
+    }
+}
+
+#[cfg(test)]
+mod selector_interaction_tests {
+    use super::*;
+    #[test]
+    fn row_hover_click_double_click_and_equal_footer_widths() {
+        let Ok(data) = std::env::var("WOW_DATA") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        let skin = WowSkin::load(Path::new(&data), &ctx).unwrap();
+        skin.apply(&ctx);
+        let mut row = Rect::NOTHING;
+        let mut footer = (0., 0.);
+        let mut step = |events: Vec<egui::Event>, time: f64| {
+            let mut result = (false, false, false);
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let r = skin.character_row(ui, "Ada", "等级60 法师", "杜隆塔尔", false);
+                        row = r.rect;
+                        result = (r.hovered(), r.clicked(), r.double_clicked());
+                        ui.horizontal(|ui| {
+                            footer.0 = skin.button_width(ui, "进入角色", 160.).rect.width();
+                            footer.1 = skin.button_width(ui, "退出", 160.).rect.width();
+                        });
+                    });
+                },
+            );
+            (result, row.center(), footer)
+        };
+        let (_, point, widths) = step(vec![], 0.);
+        assert_eq!(widths, (160., 160.));
+        let (r, _, _) = step(vec![egui::Event::PointerMoved(point)], 0.1);
+        assert!(r.0);
+        assert!(!r.1 && !r.2);
+        let event = |pressed| egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        step(vec![event(true)], 0.2);
+        let (r, _, _) = step(vec![event(false)], 0.21);
+        assert!(r.1 && !r.2);
+        step(vec![event(true)], 0.3);
+        let (r, _, _) = step(vec![event(false)], 0.31);
+        assert!(r.2);
+    }
 }

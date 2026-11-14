@@ -97,9 +97,17 @@ The speech band uses a clip-space projection remap inside a full-size transparen
 
 The selector uses 896×504 logical pixels (16:9), a compact character list, double-click or Enter Character, Manage Connections, Exit. Removed duplicate return and persistent saved-success text. Settings remain a 760×680 scrollable form. Stock slider/scroll knob artwork is read from MPQ; percentage is an editable text field instead of DragValue. Checked-state artwork remains visible on hover. Show All, Hide All, Follow Game control every supported equipment slot. Equipment visibility, FX preferences and scale preview the draft while editing; save persists, closing settings returns to saved presentation. Runtime/agent state is never modified by preview.
 
-### Selector (0.4.5)
+### Selector and settings (0.4.9)
 
-1120×630 logical 16:9, right-hand list reserves eight 48px rows with 4px spacing in a 416px scroll region. Eight connections fit without scrolling; extras scroll. Background uses original dark dialog artwork, WoW logo, and a faction badge when a cached race is known. It deliberately does not use a map loading-screen image. This is a simple static selector, not the original animated racial 3D scene or an actual 3D character preview.
+The 1120×630 logical 16:9 selector reserves eight 52px rows with 4px spacing in a 448px scroll region; extras scroll. “管理角色” is centered above the list; equal-width “进入角色” and “退出” buttons sit below it. Hover highlights a row without selecting it, a single click selects, and a double click enters. Arrow keys change selection and Enter enters. Selection alone never logs into a game account.
+
+The background reuses the client's existing GPU glue-stage renderer and the user's original racial M2 scenes: Human, Orc (also Troll), Dwarf (also Gnome), NightElf, Scourge and Tauren. It is an empty stage, with no character preview or rotation controls. Race comes from read-only status metadata or the per-source appearance cache; unknown race uses the original UI_MainMenu login stage. Missing assets retain the ordinary dark dialog background, not a map-loading-screen substitute. The stage camera is disabled and the stage torn down after leaving selection; the pet's appearance inputs are kept separate.
+
+The settings form groups character connections, display/performance, appearance/effects, interaction/audio, and resources/status. Save/Cancel remain outside the scrolling content. Appearance, scale and refresh targets preview until saved; cancel restores saved preferences. Checkboxes share game artwork; FPS and scale share a slider style with separate text inputs. Controls are Rust/egui, not an execution of stock XML/Lua. Role removal only removes the configured connection, never the server character.
+
+Each row shows name, level/class and last-known region. The resolver reads the existing status endpoint at most once per source per30seconds while the interface is open, without game actions. It stores only role metadata in a per-profile, per-URL cache; account credentials and full world snapshots are not stored. Region uses an explicit area name when supplied, otherwise the smallest enclosing WorldMapArea rectangle localized through AreaTable; this is a map-region estimate, not exact WMO/subzone detection. Unknown fields are shown as unknown. The selection border/background, 0.85 backdrop tint and additive Glue-CharacterSelect-Highlight follow the original CharacterSelect/GlueFonts references; the BLP texture's own alpha also contributes. The system pointer is unchanged.
+
+Configuration upgrades and rollback: see [COMPANION-UPGRADES.md](../../docs/COMPANION-UPGRADES.md).
 
 ### Adaptive refresh and power saving (0.4.8)
 
