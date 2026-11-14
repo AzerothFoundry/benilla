@@ -734,9 +734,10 @@ mod local_gesture_tests {
     #[test]
     fn preview_changes_are_live_only_while_editing_and_do_not_mutate_saved_values(){
         let mut ui=UiState::default();ui.settings.scale_percent=100.;ui.draft=ui.settings.clone();ui.open=true;ui.chooser=false;
-        ui.draft.scale_percent=175.;ui.draft.set_equipment_visibility(Some(false));
+        ui.draft.scale_percent=175.;ui.draft.idle_fps=12;ui.draft.active_fps=60;ui.draft.set_equipment_visibility(Some(false));
+        assert_eq!(ui.preview_settings().active_fps,60);assert_eq!(ui.settings.active_fps,30);
         assert_eq!(ui.preview_settings().scale_percent,175.);assert_eq!(ui.preview_settings().show_helm,Some(false));assert_eq!(ui.settings.scale_percent,100.);
-        ui.open=false;assert_eq!(ui.preview_settings().scale_percent,100.);assert_ne!(ui.preview_settings().show_helm,Some(false));
+        ui.open=false;assert_eq!(ui.preview_settings().active_fps,30);assert_eq!(ui.preview_settings().scale_percent,100.);assert_ne!(ui.preview_settings().show_helm,Some(false));
         ui.open=true;ui.chooser=true;assert_eq!(ui.preview_settings().scale_percent,100.);
     }
     #[test]

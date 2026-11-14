@@ -42,6 +42,8 @@ pub struct Settings {
     pub always_on_top: bool,
     pub all_desktops: bool,
     pub power_saving_idle: bool,
+    pub idle_fps: u32,
+    pub active_fps: u32,
     pub show_speech_bubble: bool,
     pub play_emote_sounds: bool,
     pub show_spell_effects: bool,
@@ -104,6 +106,8 @@ impl Default for Settings {
             always_on_top: true,
             all_desktops: true,
             power_saving_idle: true,
+            idle_fps: 4,
+            active_fps: 30,
             show_speech_bubble: true,
             play_emote_sounds: false,
             show_spell_effects: true,
@@ -219,6 +223,9 @@ impl Settings {
         old != self.connections.len()
     }
     pub fn validate(&self) -> Result<(), String> {
+        if !(2..=120).contains(&self.idle_fps) || !(2..=120).contains(&self.active_fps) {
+            return Err("待机和活动帧率必须在2–120之间".into());
+        }
         if !self.status_url.is_empty() {
             validate_url(&self.status_url)?;
         }
@@ -277,6 +284,8 @@ impl Settings {
         field!(always_on_top);
         field!(all_desktops);
         field!(power_saving_idle);
+        field!(idle_fps);
+        field!(active_fps);
         field!(show_speech_bubble);
         field!(play_emote_sounds);
         field!(show_spell_effects);
@@ -616,6 +625,22 @@ mod tests {
         let mut audio=old.clone();audio.play_emote_sounds=true;audio.save_merged(&old,&p).unwrap();
         let mut bubble=old.clone();bubble.show_speech_bubble=false;
         let saved=bubble.save_merged(&old,&p).unwrap();assert!(saved.play_emote_sounds);assert!(!saved.show_speech_bubble);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+    #[test]
+    fn frame_rates_upgrade_validate_and_merge_independently() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!((old.idle_fps, old.active_fps), (4, 30));
+        let d = dir(); let p = d.join("settings.json"); old.save(&p).unwrap();
+        let mut idle = old.clone(); idle.idle_fps = 12; idle.save_merged(&old, &p).unwrap();
+        let mut active = old.clone(); active.active_fps = 60;
+        let saved = active.save_merged(&old, &p).unwrap();
+        assert_eq!((saved.idle_fps, saved.active_fps), (12, 60));
+        assert_eq!(Settings::load(&p).unwrap(), saved);
+        for value in [0, 1, 121, u32::MAX] {
+            let mut invalid = old.clone(); invalid.idle_fps = value; assert!(invalid.validate().is_err());
+            invalid.idle_fps = 4; invalid.active_fps = value; assert!(invalid.validate().is_err());
+        }
         std::fs::remove_dir_all(d).unwrap();
     }
     #[test]

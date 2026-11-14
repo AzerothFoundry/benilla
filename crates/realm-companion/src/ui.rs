@@ -184,8 +184,18 @@ pub fn settings_ui(
                 }
                 ui.small("事件接口自动发现；不可用时回退到 status 轮询。");
                 ui.add_space(6.0);
-                ui.checkbox(&mut state.draft.power_saving_idle,"省电待机（待机4帧，活动时恢复30帧）");
-                ui.small("静止时节电；鼠标靠近、动作或动态特效会升帧。关闭可保持流畅待机。");
+                ui.checkbox(&mut state.draft.power_saving_idle,"自定义省电待机");
+                ui.horizontal(|ui| {
+                    ui.label("待机帧率");
+                    ui.add_enabled(state.draft.power_saving_idle, egui::Slider::new(&mut state.draft.idle_fps, 2..=120).suffix(" FPS"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("活动帧率");
+                    ui.add(egui::Slider::new(&mut state.draft.active_fps, 2..=120).suffix(" FPS"));
+                });
+                ui.small("修改立即预览，保存后保留。建议待机10–15、活动30–60；越高越耗电。");
+                ui.small("鼠标靠近、动作或特效使用活动档。关闭自定义待机恢复20帧，睡眠10帧。");
+                ui.small("这是刷新目标，并非严格上限；受垂直同步、硬件性能和窗口事件影响。");
                 ui.checkbox(&mut state.draft.show_speech_bubble,"显示表情气泡");
                 ui.checkbox(&mut state.draft.play_emote_sounds,"播放表情声音（游戏原声）");
                 ui.small("部分动作没有原声；对白是桌宠本地短句，不是语音字幕。");

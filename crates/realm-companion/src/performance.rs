@@ -112,10 +112,13 @@ fn refresh(
     activity.was_active = raw_active;
     let active = raw_active || now < activity.until;
     let sleep = frame.0["connected"] != true || a["sleeping"] == true || a["stand_state"] == 3;
-    let fps = if ui.settings.power_saving_idle && wake.0 && !interactive && !active {
-        4
+    let preferences = ui.preview_settings();
+    let fps = if interactive || active {
+        preferences.active_fps.clamp(2, 120)
+    } else if preferences.power_saving_idle && wake.0 {
+        preferences.idle_fps.clamp(2, 120)
     } else {
-        refresh_rate(interactive, active, sleep)
+        refresh_rate(false, false, sleep)
     };
     if *previous != fps {
         if std::env::var_os("REALM_COMPANION_PERF").is_some() {
@@ -130,7 +133,7 @@ fn refresh(
         settings.focused_mode = mode;
         settings.unfocused_mode = mode;
     }
-    let hz = if ui.settings.power_saving_idle
+    let hz = if preferences.power_saving_idle
         && !pointer.near
         && !pointer.captured
         && !active
@@ -332,13 +335,17 @@ mod adaptive_policy_tests {
             mode(&app),
             bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(0.25))
         );
+        app.world_mut().resource_mut::<crate::UiState>().settings.idle_fps = 12;
+        app.world_mut().resource_mut::<crate::UiState>().settings.active_fps = 60;
+        app.update();
+        assert_eq!(mode(&app), bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(1. / 12.)));
         app.world_mut().resource_mut::<crate::CompanionFrame>().0["animation"]["moving"] =
             true.into();
         app.update();
         assert_eq!(
             mode(&app),
             bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
-                1. / 30.
+                1. / 60.
             ))
         );
         app.world_mut().resource_mut::<crate::CompanionFrame>().0["animation"]["moving"] =
@@ -347,7 +354,7 @@ mod adaptive_policy_tests {
         assert_eq!(
             mode(&app),
             bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs_f64(
-                1. / 30.
+                1. / 60.
             ))
         );
         for _ in 0..8 {
