@@ -19,7 +19,7 @@ pub fn install(app: &mut App) {
 }
 fn setup(world: &mut World) {
     let menu = Menu::new();
-    let settings = MenuItem::new("桌宠设置…", true, None);
+    let settings = MenuItem::new("设置…", true, None);
     let quit = MenuItem::new("退出桌宠", true, None);
     let choose = MenuItem::new("选择角色…", true, None);
     if let Err(e) =
@@ -76,7 +76,7 @@ fn events(
         if event.id == menu.settings {
             ui.open_settings(false);
         } else if event.id == menu.choose {
-            ui.open_settings(true);
+            ui.request_selector();
         } else if event.id == menu.quit {
             exit.write(AppExit::Success);
         }
@@ -107,7 +107,7 @@ fn spaces(_main_thread: bevy::ecs::system::NonSendMarker, ui: Res<UiState>) {
                 if ui.settings.all_desktops {
                     next.insert(Behavior::CanJoinAllSpaces | Behavior::FullScreenAuxiliary);
                 }
-            } else if matches!(title.as_str(), "桌宠设置" | "选择角色" | "管理角色") {
+            } else if matches!(title.as_str(), "设置" | "桌宠设置" | "选择角色" | "管理角色") {
                 next.remove(Behavior::CanJoinAllSpaces);
                 next.insert(Behavior::MoveToActiveSpace);
             }

@@ -85,6 +85,8 @@ enum Action {
     Enter(String),
     Manage,
     Save,
+    SelectRole,
+    Navigate(crate::SelectorNavigation),
     SaveRoles,
     CancelRoles,
     Add,
@@ -230,14 +232,13 @@ pub fn settings_ui(
                     if button(ui,&skin.value,"取消").clicked(){action=Some(Action::CancelRoles);}
                 });
             } else {
+                ui.heading(egui::RichText::new("设置").color(crate::skin::GOLD).size(25.));
+                ui.add_space(10.);
+                ui.horizontal(|ui|{
+                    ui.label(format!("当前角色：{}",frame.0["character"].as_str().unwrap_or("未连接")));
+                    if button(ui,&skin.value,"选择角色").clicked(){action=Some(Action::SelectRole);}
+                });
                 let settings_scroll=egui::ScrollArea::vertical().id_salt("settings-management-scroll").max_height((ui.available_height()-65.).max(120.)).auto_shrink([false,false]).show(ui,|ui|{
-                ui.heading(
-                    egui::RichText::new("桌宠设置")
-                        .color(crate::skin::GOLD)
-                        .size(25.0),
-                );
-                ui.add_space(10.0);
-                ui.label(format!("当前角色：{}",frame.0["character"].as_str().unwrap_or("未连接")));
                 section(ui,"显示与性能");
                 checkbox(ui,&skin.value,&mut state.draft.power_saving_idle,"自定义省电待机");
                 ui.add_enabled_ui(state.draft.power_saving_idle,|ui|fps_control(ui,&skin.value,"待机帧率",&mut state.draft.idle_fps));
@@ -332,7 +333,7 @@ pub fn settings_ui(
                 if let Some(skin)=&skin.value{skin.scroll_art(ui,settings_scroll.inner_rect,settings_scroll.content_size,settings_scroll.state.offset);}
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
-                    if button(ui, &skin.value, "保存并应用").clicked() {
+                    if button(ui, &skin.value, "保存").clicked() {
                         action = Some(Action::Save);
                     }
                     if state.settings.data_dir != state.active_data_dir
@@ -343,16 +344,51 @@ pub fn settings_ui(
                     if button(ui, &skin.value, "取消").clicked() {
                         action = Some(Action::Close);
                     }
-                    if button(ui, &skin.value, "退出").clicked() {
-                        action = Some(Action::Exit);
-                    }
                 });            }
             if !state.message.is_empty() {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(&state.message).color(crate::skin::GOLD));
             }
         });
+    if state.pending_select {
+        let response = egui::Modal::new(egui::Id::new("unsaved-settings-role-navigation"))
+            .frame(egui::Frame::NONE.inner_margin(20.))
+            .show(ctx, |ui| {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(460., 140.),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        if let Some(skin) = &skin.value {
+                            skin.paint_frame(ui, ui.max_rect().expand(20.));
+                        }
+                        ui.heading(egui::RichText::new("有未保存的修改").color(crate::skin::GOLD));
+                        ui.label("选择角色前，是否保存当前设置？");
+                        ui.add_space(10.);
+                        ui.horizontal(|ui| {
+                            if button(ui, &skin.value, "保存并继续").clicked() {
+                                action = Some(Action::Navigate(crate::SelectorNavigation::Save));
+                            }
+                            if button(ui, &skin.value, "放弃修改").clicked() {
+                                action = Some(Action::Navigate(crate::SelectorNavigation::Discard));
+                            }
+                            if button(ui, &skin.value, "继续设置").clicked() {
+                                action = Some(Action::Navigate(crate::SelectorNavigation::Stay));
+                            }
+                        });
+                    },
+                );
+            });
+        if response.should_close() && action.is_none() {
+            action = Some(Action::Navigate(crate::SelectorNavigation::Stay));
+        }
+    }
     match action {
+        Some(Action::SelectRole) => state.request_selector(),
+        Some(Action::Navigate(choice)) => {
+            if let Err(e) = state.finish_selector_request(choice) {
+                state.message = e;
+            }
+        }
         Some(Action::Enter(id)) => {
             if let Err(e) = state.activate(&id, &poller, &mut frame, &mut reveal, &mut interaction)
             {

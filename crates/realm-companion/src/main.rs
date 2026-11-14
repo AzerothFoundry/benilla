@@ -36,7 +36,9 @@ use std::{
 
 #[derive(Clone,Copy,Debug,Default,PartialEq,Eq)]
 enum UiPage {Selector,Management,#[default] Settings}
-impl UiPage{fn title(self)->&'static str{match self{Self::Selector=>"选择角色",Self::Management=>"管理角色",Self::Settings=>"桌宠设置"}}}
+#[derive(Clone,Copy,PartialEq,Eq)]
+enum SelectorNavigation{Save,Discard,Stay}
+impl UiPage{fn title(self)->&'static str{match self{Self::Selector=>"选择角色",Self::Management=>"管理角色",Self::Settings=>"设置"}}}
 fn panel_geometry(page:UiPage,available:Option<Vec2>)->(Vec2,f32){
     let base=match page{UiPage::Selector=>Vec2::new(450.,800.),UiPage::Management=>Vec2::new(760.,420.),UiPage::Settings=>Vec2::new(760.,680.)};
     let scale=available.map(|size|((size.x-32.)/base.x).min((size.y-120.)/base.y).clamp(0.1,1.)).unwrap_or(1.);
@@ -56,6 +58,7 @@ struct UiState {
     recenter: bool,
     restart_requested: Arc<AtomicBool>,
     page: UiPage,
+    pending_select:bool,
     active_connection_id: Option<String>,
     active_url: String,
     cached_names: std::collections::HashMap<String, String>,
@@ -251,6 +254,7 @@ fn main() -> AppExit {
         restart_requested: Arc::clone(&restart_requested),
         draft: settings.clone(),
         page:if manage_roles{UiPage::Management}else if chooser{UiPage::Selector}else{UiPage::Settings},
+        pending_select:false,
         active_connection_id,
         active_url,
         cached_names,
@@ -672,7 +676,20 @@ fn connection_names(
 }
 impl UiState {
     fn preview_settings(&self)->&Settings{if self.open&&self.page==UiPage::Settings{&self.draft}else{&self.settings}}
+    fn preferences_changed(&self)->bool{
+        let mut draft=self.draft.clone();draft.connections=self.settings.connections.clone();draft.selected_connection_id=self.settings.selected_connection_id.clone();draft.status_url=self.settings.status_url.clone();draft.position=self.settings.position;
+        draft!=self.settings
+    }
+    fn request_selector(&mut self){
+        if self.open&&self.page==UiPage::Settings&&self.preferences_changed(){self.pending_select=true;}else{self.open_settings(true);}
+    }
+    fn finish_selector_request(&mut self,choice:SelectorNavigation)->Result<(),String>{
+        if choice==SelectorNavigation::Stay{self.pending_select=false;return Ok(());}
+        if choice==SelectorNavigation::Save{self.save_preferences()?;}
+        self.open_settings(true);Ok(())
+    }
     fn open_settings(&mut self, chooser: bool) {
+        self.pending_select=false;
         if let Ok(latest) = Settings::load(&self.path) {
             self.settings.connections = latest.connections;
             self.settings.selected_connection_id = match self.active_connection_id.as_ref() {
@@ -851,4 +868,9 @@ mod local_gesture_tests {
  }
  #[test]fn only_settings_page_previews_visual_preferences(){let mut ui=fixture();ui.draft.scale_percent=200.;for page in [UiPage::Selector,UiPage::Management]{ui.page=page;assert_eq!(ui.preview_settings().scale_percent,100.);}ui.page=UiPage::Settings;assert_eq!(ui.preview_settings().scale_percent,200.);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
  #[test]fn portrait_window_and_controls_scale_together_on_small_monitors(){let(size,scale)=panel_geometry(UiPage::Selector,Some(Vec2::new(1920.,1080.)));assert_eq!(size,Vec2::new(450.,800.));assert_eq!(scale,1.);let(size,scale)=panel_geometry(UiPage::Selector,Some(Vec2::new(1024.,768.)));assert!(scale<1.);assert!((size.x/size.y-9./16.).abs()<0.001);assert!(size.y<=648.);assert!((size.y/scale-800.).abs()<0.001);}
+ #[test]fn clean_settings_can_open_role_selection_without_saving_or_switching(){let mut ui=fixture();let active=ui.active_url.clone();ui.settings.position=Some([50,60]);assert!(!ui.preferences_changed());ui.request_selector();assert_eq!(ui.page,UiPage::Selector);assert!(!ui.pending_select);assert_eq!(ui.active_url,active);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
+ #[test]fn unsaved_settings_can_stay_or_discard_before_selecting(){let mut ui=fixture();ui.draft.scale_percent=125.;ui.request_selector();assert!(ui.pending_select);assert_eq!(ui.page,UiPage::Settings);ui.finish_selector_request(SelectorNavigation::Stay).unwrap();assert!(!ui.pending_select);assert_eq!(ui.draft.scale_percent,125.);assert_eq!(ui.page,UiPage::Settings);ui.request_selector();ui.finish_selector_request(SelectorNavigation::Discard).unwrap();assert_eq!(ui.page,UiPage::Selector);assert!(!ui.pending_select);assert_eq!(ui.draft.scale_percent,100.);assert_eq!(Settings::load(&ui.path).unwrap().scale_percent,100.);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
+ #[test]fn saving_before_selection_keeps_active_role_and_persists_preferences(){let mut ui=fixture();let active=(ui.active_connection_id.clone(),ui.active_url.clone());ui.draft.idle_fps=12;ui.request_selector();ui.finish_selector_request(SelectorNavigation::Save).unwrap();assert_eq!(ui.page,UiPage::Selector);assert!(!ui.pending_select);assert_eq!(Settings::load(&ui.path).unwrap().idle_fps,12);assert_eq!((ui.active_connection_id.clone(),ui.active_url.clone()),active);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
+ #[test]fn failed_save_never_discards_the_draft_or_navigates(){let mut ui=fixture();ui.draft.idle_fps=12;ui.request_selector();std::fs::write(&ui.path,r#"{"schema_version":99}"#).unwrap();assert!(ui.finish_selector_request(SelectorNavigation::Save).is_err());assert!(ui.pending_select);assert_eq!(ui.page,UiPage::Settings);assert_eq!(ui.draft.idle_fps,12);assert_eq!(std::fs::read_to_string(&ui.path).unwrap(),r#"{"schema_version":99}"#);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
+
 }
