@@ -24,8 +24,8 @@ cat > "$out/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Realm Companion</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>RealmCompanion.icns</string>
-<key>CFBundleShortVersionString</key><string>0.4.11</string>
-<key>CFBundleVersion</key><string>19</string>
+<key>CFBundleShortVersionString</key><string>0.4.12</string>
+<key>CFBundleVersion</key><string>20</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
