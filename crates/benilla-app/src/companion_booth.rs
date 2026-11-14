@@ -334,7 +334,7 @@ fn sync(
     if let Some(a) = framing.as_ref() {
         let aspect = windows
             .single()
-            .map(|w| w.width() / (w.height() * 224.0 / 268.0))
+            .map(|w| (w.width() * crate::companion_projection::BODY_SIZE.x / crate::companion_projection::CANVAS_SIZE.x) / (w.height() * crate::companion_projection::BODY_SIZE.y / crate::companion_projection::CANVAS_SIZE.y))
             .unwrap_or(0.7);
         let (mut tf, mut proj) = super::framing::body_frame(a, aspect);
         let model_scale = scale.0 * super::framing::pane_root_scale(a, display_aspect.0);

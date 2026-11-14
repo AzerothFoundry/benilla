@@ -1,6 +1,7 @@
 //! Standalone character-pane renderer. No game connection, terrain or gameplay UI.
 use bevy::prelude::*;
 use std::path::PathBuf;
+pub use crate::companion_projection::CANVAS_SIZE as COMPANION_CANVAS_SIZE;
 
 /// Local presentation only; never changes the authoritative snapshot or emits game commands.
 #[derive(Resource, Default)]

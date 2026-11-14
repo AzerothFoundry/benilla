@@ -6078,7 +6078,7 @@ dependencies = [
 
 [[package]]
 name = "realm-companion"
-version = "0.4.12"
+version = "0.4.13"
 dependencies = [
  "avian3d",
  "benilla-app",

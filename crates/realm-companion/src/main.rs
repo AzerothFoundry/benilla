@@ -174,7 +174,7 @@ fn main() -> AppExit {
         open = true;
         false
     };
-    let base_size = Vec2::new(233.0, 268.0);
+    let base_size = benilla_app::companion_renderer::COMPANION_CANVAS_SIZE;
     let mut window = Window {
         title: "Realm Companion".into(),
         resolution: (base_size.x as u32, base_size.y as u32).into(),
@@ -423,10 +423,11 @@ fn window_controls(
     frame: Res<CompanionFrame>,
     time: Res<Time>,
 ) {
+    let first_monitor = !ui.monitor_ready;
     if !ui.monitor_ready {
         if let Some(m) = monitors.iter().next() {
             let logical_height = m.physical_height as f32 / m.scale_factor as f32;
-            ui.base_size = Vec2::new(233.0, 268.0) * (logical_height / 768.0);
+            ui.base_size = benilla_app::companion_renderer::COMPANION_CANVAS_SIZE * (logical_height / 768.0);
             display_aspect.0 = m.physical_width as f32 / m.physical_height as f32;
             ui.monitor_ready = true;
         }
@@ -481,8 +482,21 @@ fn window_controls(
         }
     }
     let size = ui.base_size * (ui.preview_settings().scale_percent / 100.0);
-    if (window.width() - size.x).abs() > 1.0 || (window.height() - size.y).abs() > 1.0 {
+    let resized = (window.width() - size.x).abs() > 1.0 || (window.height() - size.y).abs() > 1.0;
+    if resized {
         window.resolution.set(size.x, size.y);
+    }
+    if first_monitor || resized {
+        if let (WindowPosition::At(position), Some(monitor)) = (window.position, monitors.iter().next()) {
+            let origin = monitor.physical_position;
+            let bounds = Vec2::new(monitor.physical_width as f32, monitor.physical_height as f32);
+            // Keep saved positions on other monitors; only fit positions on this display.
+            let local = (position - origin).as_vec2();
+            if local.cmpge(Vec2::ZERO).all() && local.cmplt(bounds).all() {
+                let fitted = local.clamp(Vec2::ZERO, (bounds - size * monitor.scale_factor as f32).max(Vec2::ZERO));
+                window.position = WindowPosition::At(origin + fitted.as_ivec2());
+            }
+        }
     }
     let level=if ui.settings.always_on_top{WindowLevel::AlwaysOnTop}else{WindowLevel::Normal};
     if window.window_level!=level{window.window_level=level;}
