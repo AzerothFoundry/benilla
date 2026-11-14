@@ -107,7 +107,7 @@ fn spaces(_main_thread: bevy::ecs::system::NonSendMarker, ui: Res<UiState>) {
                 if ui.settings.all_desktops {
                     next.insert(Behavior::CanJoinAllSpaces | Behavior::FullScreenAuxiliary);
                 }
-            } else if matches!(title.as_str(), "桌宠设置" | "选择角色") {
+            } else if matches!(title.as_str(), "桌宠设置" | "选择角色" | "管理角色") {
                 next.remove(Behavior::CanJoinAllSpaces);
                 next.insert(Behavior::MoveToActiveSpace);
             }

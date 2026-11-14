@@ -5,6 +5,40 @@ use bevy_egui::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, TextureHand
 use std::path::Path;
 
 pub const GOLD: Color32 = Color32::from_rgb(255, 209, 0);
+pub struct SelectorLayout {
+    pub logo: Rect,
+    pub manage: Rect,
+    pub list: Rect,
+    pub enter: Rect,
+    pub exit: Rect,
+}
+pub fn selector_layout(rect: Rect) -> SelectorLayout {
+    let x = rect.center().x;
+    let top = rect.top();
+    let bottom = rect.bottom();
+    SelectorLayout {
+        logo: Rect::from_center_size(Pos2::new(x, top + 84.), Vec2::new(240., 120.)),
+        manage: Rect::from_center_size(Pos2::new(x, top + 166.), Vec2::new(160., 28.)),
+        list: Rect::from_min_size(Pos2::new(x - 170., top + 194.), Vec2::new(340., 544.)),
+        enter: Rect::from_min_size(Pos2::new(x - 170., bottom - 52.), Vec2::new(160., 28.)),
+        exit: Rect::from_min_size(Pos2::new(x + 10., bottom - 52.), Vec2::new(160., 28.)),
+    }
+}
+fn cover_uv(source: f32, target: f32) -> Rect {
+    if source > target {
+        let visible = target / source;
+        Rect::from_min_max(
+            Pos2::new((1. - visible) / 2., 0.),
+            Pos2::new((1. + visible) / 2., 1.),
+        )
+    } else {
+        let visible = source / target;
+        Rect::from_min_max(
+            Pos2::new(0., (1. - visible) / 2.),
+            Pos2::new(1., (1. + visible) / 2.),
+        )
+    }
+}
 #[derive(Clone)]
 pub struct WowSkin {
     background: TextureHandle,
@@ -328,24 +362,19 @@ impl WowSkin {
         scene: Option<egui::TextureId>,
     ) {
         let canvas = rect.shrink(12.);
+        let layout = selector_layout(rect);
         if let Some(image) = scene {
             ui.painter().image(
                 image,
                 canvas,
-                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                cover_uv(16./9., canvas.aspect_ratio()),
                 Color32::WHITE,
             );
         }
-        let right = Rect::from_min_max(
-            Pos2::new(canvas.right() - 392., canvas.top() + 8.),
-            canvas.right_bottom() - Vec2::splat(8.),
-        );
         if let Some(logo) = &self.selector_logo {
-            let target =
-                Rect::from_min_size(canvas.min + Vec2::new(20., 16.), Vec2::new(250., 125.));
             ui.painter().image(
                 logo.id(),
-                target,
+                layout.logo,
                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
                 Color32::WHITE,
             );
@@ -359,8 +388,8 @@ impl WowSkin {
         };
         if let Some(image) = faction {
             let target = Rect::from_min_size(
-                Pos2::new(right.left() - 74., canvas.bottom() - 80.),
-                Vec2::splat(64.),
+                Pos2::new(canvas.right() - 44., canvas.top() + 18.),
+                Vec2::splat(32.),
             );
             ui.painter().image(
                 image.id(),
@@ -371,7 +400,7 @@ impl WowSkin {
         }
         self.paint_backdrop(
             ui,
-            right,
+            layout.list.expand2(Vec2::new(24., 8.)),
             &self.selector_background,
             &self.selector_border,
             16.,
@@ -389,13 +418,13 @@ impl WowSkin {
         selected: bool,
     ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().min(340.), 52.0),
+            Vec2::new(ui.available_width().min(340.), 64.0),
             egui::Sense::click(),
         );
         if selected || response.hovered() {
             ui.painter().image(
                 self.role_highlight.id(),
-                rect.expand2(Vec2::new(0.,6.)),
+                rect.expand2(Vec2::new(0., 6.)),
                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
                 if selected {
                     Color32::WHITE
@@ -409,7 +438,11 @@ impl WowSkin {
             egui::Align2::LEFT_TOP,
             name,
             FontId::proportional(18.),
-            if response.hovered() {Color32::WHITE}else{Color32::from_rgb(255,199,0)},
+            if response.hovered() {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(255, 199, 0)
+            },
         );
         if !subtitle.is_empty() {
             ui.painter().text(
@@ -811,5 +844,29 @@ mod selector_interaction_tests {
         step(vec![event(true)], 0.3);
         let (r, _, _) = step(vec![event(false)], 0.31);
         assert!(r.2);
+    }
+}
+
+#[cfg(test)]
+mod portrait_layout_tests {
+    use super::*;
+    #[test]
+    fn eight_full_rows_fit_between_management_and_equal_footer_buttons() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(450., 800.));
+        let l = selector_layout(rect);
+        assert_eq!(l.manage.center().x, l.list.center().x);
+        assert!(l.logo.bottom() < l.manage.top());
+        assert!(l.manage.bottom() < l.list.top());
+        assert!(8. * 64. + 7. * 4. <= l.list.height());
+        assert!(l.list.bottom() < l.enter.top());
+        assert_eq!(l.enter.size(), l.exit.size());
+        assert!(rect.contains_rect(l.enter) && rect.contains_rect(l.exit));
+    }
+    #[test]
+    fn cover_crops_without_stretching_scene_geometry() {
+        let uv = cover_uv(16. / 9., 426. / 776.);
+        assert!(uv.min.x > 0. && uv.max.x < 1.);
+        assert_eq!(uv.height(), 1.);
+        assert!((uv.width() * 16. / 9. - 426. / 776.).abs() < 0.001);
     }
 }

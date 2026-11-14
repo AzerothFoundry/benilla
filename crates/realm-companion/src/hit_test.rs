@@ -65,7 +65,7 @@ fn poll(
             if window.title().to_string() != "Realm Companion" {
                 continue;
             }
-            if ui.chooser {
+            if ui.page!=crate::UiPage::Settings {
                 if window.ignoresMouseEvents(){window.setIgnoresMouseEvents(false);}
                 gate.hit = true;
                 gate.captured = false;

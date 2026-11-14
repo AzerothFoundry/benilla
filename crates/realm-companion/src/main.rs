@@ -34,6 +34,14 @@ use std::{
     },
 };
 
+#[derive(Clone,Copy,Debug,Default,PartialEq,Eq)]
+enum UiPage {Selector,Management,#[default] Settings}
+impl UiPage{fn title(self)->&'static str{match self{Self::Selector=>"选择角色",Self::Management=>"管理角色",Self::Settings=>"桌宠设置"}}}
+fn panel_geometry(page:UiPage,available:Option<Vec2>)->(Vec2,f32){
+    let base=match page{UiPage::Selector=>Vec2::new(450.,800.),UiPage::Management=>Vec2::new(760.,420.),UiPage::Settings=>Vec2::new(760.,680.)};
+    let scale=available.map(|size|((size.x-32.)/base.x).min((size.y-120.)/base.y).clamp(0.1,1.)).unwrap_or(1.);
+    (base*scale,scale)
+}
 #[derive(Resource, Default)]
 struct UiState {
     settings: Settings,
@@ -47,7 +55,7 @@ struct UiState {
     active_data_dir: String,
     recenter: bool,
     restart_requested: Arc<AtomicBool>,
-    chooser: bool,
+    page: UiPage,
     active_connection_id: Option<String>,
     active_url: String,
     cached_names: std::collections::HashMap<String, String>,
@@ -73,6 +81,8 @@ fn main() -> AppExit {
     };
     let mut open = !setup_message.is_empty();
     let mut explicit_url = false;
+    let mut manage_roles=false;
+    let mut settings_requested=false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -81,7 +91,8 @@ fn main() -> AppExit {
                 if let Err(e)=icon::export(std::path::Path::new(&settings.data_dir),std::path::Path::new(&path)){eprintln!("{e}");return AppExit::error();}
                 return AppExit::Success;
             }
-            "--settings" => open = true,
+            "--settings" => {open=true;settings_requested=true;},
+            "--manage-roles"=>{open=true;manage_roles=true;},
             "--url" => {
                 if let Some(v) = args.next() {
                     match settings::normalize_status_url(&v) {
@@ -109,7 +120,7 @@ fn main() -> AppExit {
                 }
             }
             "--help" => {
-                println!("realm-companion [--settings] [--url FULL_STATUS_URL] [--data WOW_DATA_DIRECTORY]\nRight click / F2: settings; left drag: move. Settings persist in {}",path.display());
+                println!("realm-companion [--settings | --manage-roles] [--url FULL_STATUS_URL] [--data WOW_DATA_DIRECTORY]\nRight click / F2: settings; left drag: move. Settings persist in {}",path.display());
                 return AppExit::Success;
             }
             _ => {
@@ -123,7 +134,7 @@ fn main() -> AppExit {
         open = true;
     }
     let chooser =
-        (!explicit_url && settings.connections.len() > 1) || settings.connections.is_empty();
+        manage_roles || (!settings_requested && ((!explicit_url && settings.connections.len() > 1) || settings.connections.is_empty()));
     open |= chooser;
     let active_connection_id = if chooser {
         None
@@ -239,7 +250,7 @@ fn main() -> AppExit {
     app.insert_resource(UiState {
         restart_requested: Arc::clone(&restart_requested),
         draft: settings.clone(),
-        chooser,
+        page:if manage_roles{UiPage::Management}else if chooser{UiPage::Selector}else{UiPage::Settings},
         active_connection_id,
         active_url,
         cached_names,
@@ -430,7 +441,7 @@ fn window_controls(
     {
         ui.open_settings(false);
     }
-    if !ui.chooser && left_pressed && (gate.hit||gate.captured) {
+    if ui.page==UiPage::Settings && left_pressed && (gate.hit||gate.captured) {
         if let Some(point) = gate.point.or(window.cursor_position()) {
             interaction.press(point);
         }
@@ -539,14 +550,16 @@ fn visual_probe(
     }
 }
 
-fn setup_settings_window(mut c: Commands, ui: Res<UiState>) {
+fn setup_settings_window(mut c: Commands, ui: Res<UiState>,monitors:Query<&Monitor,With<PrimaryMonitor>>) {
+    let available=monitors.iter().next().map(|m|Vec2::new(m.physical_width as f32,m.physical_height as f32)/m.scale_factor as f32);
+    let(size,scale)=panel_geometry(ui.page,available);
     let window = c
         .spawn((
             SettingsWindow,
             benilla_app::companion_renderer::CompanionSelectorWindow,
             Window {
-                title: "桌宠设置".into(),
-                resolution: (1120, 630).into(),
+                title: ui.page.title().into(),
+                resolution: (size.x as u32,size.y as u32).into(),
                 visible: ui.open,
                 position: WindowPosition::Centered(bevy::window::MonitorSelection::Primary),
                 window_level: WindowLevel::AlwaysOnTop,
@@ -565,32 +578,36 @@ fn setup_settings_window(mut c: Commands, ui: Res<UiState>) {
         },
         bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window)),
         bevy_egui::PrimaryEguiContext,
+        bevy_egui::EguiContextSettings{scale_factor:scale,..default()},
     ));
 }
 fn settings_window_controls(
     mut ui: ResMut<UiState>,
     mut windows: Query<(Entity, &mut Window), With<SettingsWindow>>,
-    mut cameras: Query<&mut Camera, With<SettingsCamera>>,
+    mut cameras: Query<(&mut Camera,&mut bevy_egui::EguiContextSettings), With<SettingsCamera>>,
+    monitors:Query<&Monitor,With<PrimaryMonitor>>,
     mut close: MessageReader<bevy::window::WindowCloseRequested>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Ok((id, mut window)) = windows.single_mut() else {
         return;
     };
-    let size=if ui.chooser{Vec2::new(1120.,630.)}else{Vec2::new(760.,680.)};
+    let available=monitors.iter().next().map(|m|Vec2::new(m.physical_width as f32,m.physical_height as f32)/m.scale_factor as f32);
+    let(size,scale)=panel_geometry(ui.page,available);
     if (window.width()-size.x).abs()>1.||(window.height()-size.y).abs()>1.{window.resolution.set(size.x,size.y);window.position=WindowPosition::Centered(bevy::window::MonitorSelection::Primary);}
     for event in close.read() {
         if event.window == id {
-            if ui.chooser && ui.active_url.is_empty() {
+            if ui.page==UiPage::Management{ui.open_settings(true);continue;}
+            if ui.page==UiPage::Selector && ui.active_url.is_empty() {
                 exit.write(AppExit::Success);
             }
-            ui.chooser = false;
+            ui.page = UiPage::Settings;
             ui.open = false;
         } else {
             exit.write(AppExit::Success);
         }
     }
-    let title=if ui.chooser{"选择角色"}else{"桌宠设置"};
+    let title=ui.page.title();
     if window.title!=title{window.title=title.into();}
     if window.visible!=ui.open{window.visible=ui.open;}
     if ui.recenter && ui.open {
@@ -598,7 +615,8 @@ fn settings_window_controls(
         window.focused = true;
         ui.recenter = false;
     }
-    for mut camera in &mut cameras {
+    for (mut camera,mut context) in &mut cameras {
+        if context.scale_factor!=scale{context.scale_factor=scale;}
         if camera.is_active!=ui.open{camera.is_active=ui.open;}
     }
 }
@@ -653,7 +671,7 @@ fn connection_names(
         .collect()
 }
 impl UiState {
-    fn preview_settings(&self)->&Settings{if self.open&&!self.chooser{&self.draft}else{&self.settings}}
+    fn preview_settings(&self)->&Settings{if self.open&&self.page==UiPage::Settings{&self.draft}else{&self.settings}}
     fn open_settings(&mut self, chooser: bool) {
         if let Ok(latest) = Settings::load(&self.path) {
             self.settings.connections = latest.connections;
@@ -677,7 +695,24 @@ impl UiState {
         self.draft = self.settings.clone();
         self.open = true;
         self.recenter = true;
-        self.chooser = chooser;
+        self.page=if chooser{UiPage::Selector}else{UiPage::Settings};
+    }
+    fn save_roles(&mut self)->Result<(),String>{
+        for c in &mut self.draft.connections{c.status_url=settings::normalize_status_url(&c.status_url)?;if c.name.trim().is_empty(){c.name=settings::provisional_name(&c.status_url);}}
+        self.draft.status_url=self.draft.active_connection().map(|c|c.status_url.clone()).unwrap_or_default();
+        let mut edited=self.settings.clone();edited.connections=self.draft.connections.clone();edited.selected_connection_id=self.draft.selected_connection_id.clone();edited.status_url=self.draft.status_url.clone();
+        let merged=edited.save_merged(&self.settings,&self.path)?;
+        self.settings=merged;self.draft=self.settings.clone();self.page=UiPage::Selector;self.open=true;self.recenter=true;self.message.clear();Ok(())
+    }
+    fn save_preferences(&mut self)->Result<(),String>{
+        self.draft.connections=self.settings.connections.clone();self.draft.selected_connection_id=self.settings.selected_connection_id.clone();self.draft.status_url=self.settings.status_url.clone();
+        self.draft.position=self.settings.position;
+        let changed_resource=self.draft.data_dir!=self.active_data_dir;
+        self.settings=self.draft.save_merged(&self.settings,&self.path)?;self.draft=self.settings.clone();
+        self.page=if self.active_url.is_empty()&&!changed_resource{UiPage::Selector}else{UiPage::Settings};
+        self.open=changed_resource||self.active_url.is_empty();
+        self.message=if changed_resource{"已保存，请重新启动以加载资源目录。".into()}else{String::new()};
+        Ok(())
     }
     fn activate(
         &mut self,
@@ -703,7 +738,7 @@ impl UiState {
             && self.active_url == connection.status_url
         {
             self.open = false;
-            self.chooser = false;
+            self.page = UiPage::Settings;
             self.draft = self.settings.clone();
             return Ok(());
         }
@@ -717,7 +752,7 @@ impl UiState {
         interaction.cancel();
         poller.set_url(connection.status_url);
         self.open = false;
-        self.chooser = false;
+        self.page = UiPage::Settings;
         self.connection = "正在连接…".into();
         self.draft = self.settings.clone();
         Ok(())
@@ -737,12 +772,12 @@ mod local_gesture_tests {
     use super::*;
     #[test]
     fn preview_changes_are_live_only_while_editing_and_do_not_mutate_saved_values(){
-        let mut ui=UiState::default();ui.settings.scale_percent=100.;ui.draft=ui.settings.clone();ui.open=true;ui.chooser=false;
+        let mut ui=UiState::default();ui.settings.scale_percent=100.;ui.draft=ui.settings.clone();ui.open=true;ui.page=UiPage::Settings;
         ui.draft.scale_percent=175.;ui.draft.idle_fps=12;ui.draft.active_fps=60;ui.draft.set_equipment_visibility(Some(false));
         assert_eq!(ui.preview_settings().active_fps,60);assert_eq!(ui.settings.active_fps,30);
         assert_eq!(ui.preview_settings().scale_percent,175.);assert_eq!(ui.preview_settings().show_helm,Some(false));assert_eq!(ui.settings.scale_percent,100.);
         ui.open=false;assert_eq!(ui.preview_settings().active_fps,30);assert_eq!(ui.preview_settings().scale_percent,100.);assert_ne!(ui.preview_settings().show_helm,Some(false));
-        ui.open=true;ui.chooser=true;assert_eq!(ui.preview_settings().scale_percent,100.);
+        ui.open=true;ui.page=UiPage::Selector;assert_eq!(ui.preview_settings().scale_percent,100.);
     }
     #[test]
     fn idle_hit_cache_never_reuses_a_stale_changed_or_dynamic_pose(){
@@ -789,7 +824,7 @@ mod local_gesture_tests {
    let mut app=App::new();app.add_plugins(MinimalPlugins).init_resource::<UiState>().init_resource::<Interaction>().init_resource::<hit_test::PointerGate>().init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>().init_resource::<CompanionDisplayAspect>().add_message::<WindowMoved>().add_message::<bevy::input::mouse::MouseButtonInput>();
    app.insert_resource(CompanionFrame(serde_json::json!({"connected":true,"animation":{"dead":false}})));
    let pet=app.world_mut().spawn((Window{focused:false,..default()},PrimaryWindow)).id();let other=app.world_mut().spawn(Window::default()).id();
-   {let mut ui=app.world_mut().resource_mut::<UiState>();ui.chooser=false;ui.monitor_ready=true;ui.base_size=Vec2::new(233.,268.);}
+   {let mut ui=app.world_mut().resource_mut::<UiState>();ui.page=UiPage::Settings;ui.monitor_ready=true;ui.base_size=Vec2::new(233.,268.);}
    {let mut gate=app.world_mut().resource_mut::<hit_test::PointerGate>();gate.hit=true;gate.point=Some(Vec2::ZERO);}
    app.add_systems(Update,window_controls);
    for _ in 0..2{
@@ -799,4 +834,21 @@ mod local_gesture_tests {
    assert_eq!(app.world().resource::<Interaction>().dancing,own);
   }
  }
+}
+
+#[cfg(test)]mod page_boundary_tests{
+ use super::*;
+ fn fixture()->UiState{
+  let dir=std::env::temp_dir().join(format!("companion-pages-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));std::fs::create_dir_all(&dir).unwrap();let path=dir.join("settings.json");let mut settings=Settings::default();settings.add_connection("Iris".into(),"http://localhost:20001/status".into()).unwrap();settings.save(&path).unwrap();
+  UiState{draft:settings.clone(),active_url:settings.status_url.clone(),active_connection_id:settings.selected_connection_id.clone(),active_data_dir:settings.data_dir.clone(),settings,path,open:true,..default()}
+ }
+ #[test]fn saving_role_edits_returns_to_selection_without_switching_the_active_pet(){
+  let mut ui=fixture();let active=(ui.active_connection_id.clone(),ui.active_url.clone());let target=ui.draft.connections[1].id.clone();ui.page=UiPage::Management;ui.draft.select_connection(&target).unwrap();ui.draft.connections[1].status_url="http://localhost:20002/status".into();ui.draft.scale_percent=200.;
+  ui.save_roles().unwrap();assert_eq!(ui.page,UiPage::Selector);assert!(ui.open);assert_eq!((ui.active_connection_id.clone(),ui.active_url.clone()),active);let saved=Settings::load(&ui.path).unwrap();assert_eq!(saved.selected_connection_id,Some(target));assert_eq!(saved.scale_percent,100.);assert!(saved.connections[1].status_url.contains("20002"));std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();
+ }
+ #[test]fn settings_save_never_saves_role_selection_or_url_edits(){
+  let mut ui=fixture();let active=(ui.active_connection_id.clone(),ui.active_url.clone());let target=ui.draft.connections[1].id.clone();ui.draft.select_connection(&target).unwrap();ui.draft.connections[0].status_url="http://localhost:29999/status".into();ui.draft.scale_percent=125.;ui.save_preferences().unwrap();assert!(!ui.open);assert_eq!((ui.active_connection_id.clone(),ui.active_url.clone()),active.clone());let saved=Settings::load(&ui.path).unwrap();assert_eq!(saved.selected_connection_id,active.0);assert_eq!(saved.status_url,active.1);assert_eq!(saved.scale_percent,125.);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();
+ }
+ #[test]fn only_settings_page_previews_visual_preferences(){let mut ui=fixture();ui.draft.scale_percent=200.;for page in [UiPage::Selector,UiPage::Management]{ui.page=page;assert_eq!(ui.preview_settings().scale_percent,100.);}ui.page=UiPage::Settings;assert_eq!(ui.preview_settings().scale_percent,200.);std::fs::remove_dir_all(ui.path.parent().unwrap()).unwrap();}
+ #[test]fn portrait_window_and_controls_scale_together_on_small_monitors(){let(size,scale)=panel_geometry(UiPage::Selector,Some(Vec2::new(1920.,1080.)));assert_eq!(size,Vec2::new(450.,800.));assert_eq!(scale,1.);let(size,scale)=panel_geometry(UiPage::Selector,Some(Vec2::new(1024.,768.)));assert!(scale<1.);assert!((size.x/size.y-9./16.).abs()<0.001);assert!(size.y<=648.);assert!((size.y/scale-800.).abs()<0.001);}
 }

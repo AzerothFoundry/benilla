@@ -60,7 +60,7 @@ pub fn reveal_avatar(
             info!("companion startup: model prepared; revealing transparent window");
         }
     }
-    let visible=reveal.shown&&!ui.chooser;
+    let visible=reveal.shown&&ui.page==crate::UiPage::Settings;
     if window.visible!=visible{window.visible=visible;}
 }
 
@@ -107,7 +107,7 @@ mod tests {
         assert!(!app.world().get::<Window>(window).unwrap().visible);
         app.update();
         assert!(app.world().get::<Window>(window).unwrap().visible);
-        app.world_mut().resource_mut::<crate::UiState>().chooser = true;
+        app.world_mut().resource_mut::<crate::UiState>().page = crate::UiPage::Selector;
         app.update();
         assert!(!app.world().get::<Window>(window).unwrap().visible);
     }

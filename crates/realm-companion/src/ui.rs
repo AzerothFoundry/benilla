@@ -1,7 +1,4 @@
-use crate::{
-    presentation, settings::normalize_status_url, CompanionFrame, Interaction, Poller, SkinState,
-    UiState,
-};
+use crate::{presentation, CompanionFrame, Interaction, Poller, SkinState, UiPage, UiState};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use std::sync::atomic::Ordering;
@@ -87,8 +84,9 @@ fn section(ui: &mut egui::Ui, label: &str) {
 enum Action {
     Enter(String),
     Manage,
-    Selector,
     Save,
+    SaveRoles,
+    CancelRoles,
     Add,
     Remove,
     Close,
@@ -108,7 +106,7 @@ pub fn settings_ui(
     mut selector: Option<ResMut<benilla_app::companion_renderer::CompanionSelectorBackground>>,
 ) -> Result {
     if let Some(selector) = selector.as_deref_mut() {
-        selector.visible = state.open && state.chooser;
+        selector.visible = state.open && state.page == UiPage::Selector;
     }
     if !state.open {
         return Ok(());
@@ -118,7 +116,7 @@ pub fn settings_ui(
         .and_then(|s| s.image.clone())
         .map(|image| contexts.add_image(bevy_egui::EguiTextureHandle::Strong(image)));
     if let Some(selector) = selector.as_deref_mut() {
-        selector.visible = state.open && state.chooser;
+        selector.visible = state.open && state.page == UiPage::Selector;
     }
     resolver.set_data_dir(&state.active_data_dir);
     let ctx = contexts.ctx_mut()?;
@@ -128,7 +126,7 @@ pub fn settings_ui(
         .show(ctx, |ui| {
             if let Some(s) = &skin.value {
                 s.paint_frame(ui, ui.max_rect().expand(24.0));
-                if state.chooser{
+                if state.page==UiPage::Selector{
                     let key=ui.id().with(("selector-race",state.draft.selected_connection_id.clone(),state.draft.status_url.clone()));
                     let race=if let Some(cached)=ui.data_mut(|d|d.get_temp::<Option<u8>>(key)){cached}else{
                         let value=state.draft.active_connection().and_then(|c|crate::settings::Settings::load_cached_appearance_for(&state.path,&crate::settings::cache_identity(&c.id,&c.status_url)).ok().flatten()).and_then(|cache|cache.appearance["race"].as_u64().map(|v|v as u8));
@@ -139,80 +137,39 @@ pub fn settings_ui(
                     s.paint_selector(ui,ui.max_rect().expand(24.),race,if selector.as_ref().is_some_and(|s|s.ready){scene}else{None});
                 }
             }
-            if state.chooser {
+            if state.page==UiPage::Selector {
                 if !ctx.wants_keyboard_input() {
                     let direction=ctx.input(|i|if i.key_pressed(egui::Key::ArrowDown)||i.key_pressed(egui::Key::ArrowRight){1}else if i.key_pressed(egui::Key::ArrowUp)||i.key_pressed(egui::Key::ArrowLeft){-1}else{0});
                     if direction!=0 {let ids:Vec<_>=state.draft.connections.iter().map(|c|c.id.clone()).collect();if !ids.is_empty(){let current=ids.iter().position(|id|Some(id)==state.draft.selected_connection_id.as_ref()).unwrap_or(0);let next=(current as isize+direction).rem_euclid(ids.len() as isize) as usize;let _=state.draft.select_connection(&ids[next]);}}
                     if ctx.input(|i|i.key_pressed(egui::Key::Enter)){if let Some(id)=state.draft.selected_connection_id.clone(){action=Some(Action::Enter(id));}}
                 }
-                ui.horizontal(|ui| {
-                ui.add_space((ui.available_width()-360.).max(0.));
-                ui.allocate_ui_with_layout(egui::vec2(360.,ui.available_height()),egui::Layout::top_down(egui::Align::Min),|ui| {
-                ui.set_max_width(360.);
-                ui.horizontal(|ui|{ui.add_space(90.);if sized_button(ui,&skin.value,"管理角色",160.).clicked(){action=Some(Action::Manage);}});
-                ui.add_space(8.0);
-                for c in &state.draft.connections {
-                    resolver.request(&c.id, &c.status_url);
-                }
-                let selected = state.draft.selected_connection_id.clone();
-                let selection_scroll=egui::ScrollArea::vertical()
-                    .max_width(360.0)
-                    .min_scrolled_height(448.0)
-                    .max_height(448.0)
-                    .auto_shrink([false,false])
-                    .show(ui, |ui| {
+                let layout=crate::skin::selector_layout(ui.max_rect().expand(24.));
+                if ui.scope_builder(egui::UiBuilder::new().max_rect(layout.manage),|ui|sized_button(ui,&skin.value,"管理角色",160.)).inner.clicked(){action=Some(Action::Manage);}
+                for c in &state.draft.connections{resolver.request(&c.id,&c.status_url);}
+                let selected=state.draft.selected_connection_id.clone();
+                ui.scope_builder(egui::UiBuilder::new().max_rect(layout.list),|ui|{
+                    let scroll=egui::ScrollArea::vertical().id_salt("portrait-role-list").min_scrolled_height(544.).max_height(544.).auto_shrink([false,false]).show(ui,|ui|{
                         ui.spacing_mut().item_spacing.y=4.;
-                        let rows = state.draft.connections.clone();
-                        for c in rows {
-                            let name = state.cached_names.get(&c.id).unwrap_or(&c.name);
+                        for c in state.draft.connections.clone(){
+                            let name=state.cached_names.get(&c.id).unwrap_or(&c.name);
                             let profile=resolver.profile(&state.path,&c.id,&c.status_url).clone();
-                            let response = if let Some(skin) = &skin.value {
-                                skin.character_row(
-                                    ui,
-                                    name,
-                                    &profile.description(),
-                                    profile.location.as_deref().unwrap_or("地区未知"),
-                                    selected.as_ref() == Some(&c.id),
-                                )
-                            } else {
-                                ui.add_sized(
-                                    [ui.available_width(), 48.0],
-                                    egui::Button::new(name)
-                                        .selected(selected.as_ref() == Some(&c.id)),
-                                )
-                            };
-                            if response.clicked() {
-                                let _ = state.draft.select_connection(&c.id);
-                            }
-                            if response.double_clicked() {
-                                action = Some(Action::Enter(c.id.clone()));
-                            }
-                            response.on_hover_text(&c.status_url);
+                            let r=if let Some(skin)=&skin.value{skin.character_row(ui,name,&profile.description(),profile.location.as_deref().unwrap_or("地区未知"),selected.as_ref()==Some(&c.id))}else{ui.add_sized([340.,64.],egui::Button::new(name).selected(selected.as_ref()==Some(&c.id)))};
+                            if r.clicked(){let _=state.draft.select_connection(&c.id);}
+                            if r.double_clicked(){action=Some(Action::Enter(c.id.clone()));}
+                            r.on_hover_text(&c.status_url);
                         }
-                        if state.draft.connections.is_empty() {
-                            ui.label("尚未添加角色，请点击“管理角色”。");
-                        }
+                        if state.draft.connections.is_empty(){ui.label("尚未添加角色，请点击“管理角色”。");}
                     });
-                if let Some(skin)=&skin.value{skin.scroll_art(ui,selection_scroll.inner_rect,selection_scroll.content_size,selection_scroll.state.offset);}
-                ui.add_space(14.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(5.);
-                    let selected=state.draft.selected_connection_id.clone();
-                    let enter=ui.add_enabled_ui(selected.is_some(),|ui|sized_button(ui,&skin.value,"进入角色",160.)).inner;
-                    if enter.clicked(){if let Some(id)=selected{action=Some(Action::Enter(id));}}
-                    if sized_button(ui,&skin.value,"退出",160.).on_hover_text("关闭应用").clicked(){action=Some(Action::Exit);}
+                    if let Some(skin)=&skin.value{skin.scroll_art(ui,scroll.inner_rect,scroll.content_size,scroll.state.offset);}
                 });
-                });
-                });
-            } else {
-                let settings_scroll=egui::ScrollArea::vertical().id_salt("settings-management-scroll").max_height((ui.available_height()-65.).max(120.)).auto_shrink([false,false]).show(ui,|ui|{
-                ui.heading(
-                    egui::RichText::new("桌宠设置")
-                        .color(crate::skin::GOLD)
-                        .size(25.0),
-                );
-                ui.add_space(10.0);
-                section(ui,"角色与连接");
+                let enter=ui.scope_builder(egui::UiBuilder::new().max_rect(layout.enter),|ui|ui.add_enabled_ui(selected.is_some(),|ui|sized_button(ui,&skin.value,"进入角色",160.)).inner).inner;
+                if enter.clicked(){if let Some(id)=selected{action=Some(Action::Enter(id));}}
+                if ui.scope_builder(egui::UiBuilder::new().max_rect(layout.exit),|ui|sized_button(ui,&skin.value,"退出",160.)).inner.on_hover_text("关闭应用").clicked(){action=Some(Action::Exit);}
+            } else if state.page==UiPage::Management {
+                ui.heading(egui::RichText::new("管理角色").color(crate::skin::GOLD).size(25.));
+                ui.label("添加或修改角色连接；保存不会切换当前桌宠。");
+                let scroll=egui::ScrollArea::vertical().id_salt("role-management-scroll").max_height((ui.available_height()-65.).max(120.)).auto_shrink([false,false]).show(ui,|ui|{
+
                 ui.horizontal(|ui| {
                     let label = state
                         .draft
@@ -266,6 +223,21 @@ pub fn settings_ui(
                     }
                 }
                 ui.small("事件接口自动发现；不可用时回退到 status 轮询。");
+                });
+                if let Some(skin)=&skin.value{skin.scroll_art(ui,scroll.inner_rect,scroll.content_size,scroll.state.offset);}
+                ui.separator();ui.horizontal(|ui|{
+                    if button(ui,&skin.value,"保存并返回").clicked(){action=Some(Action::SaveRoles);}
+                    if button(ui,&skin.value,"取消").clicked(){action=Some(Action::CancelRoles);}
+                });
+            } else {
+                let settings_scroll=egui::ScrollArea::vertical().id_salt("settings-management-scroll").max_height((ui.available_height()-65.).max(120.)).auto_shrink([false,false]).show(ui,|ui|{
+                ui.heading(
+                    egui::RichText::new("桌宠设置")
+                        .color(crate::skin::GOLD)
+                        .size(25.0),
+                );
+                ui.add_space(10.0);
+                ui.label(format!("当前角色：{}",frame.0["character"].as_str().unwrap_or("未连接")));
                 section(ui,"显示与性能");
                 checkbox(ui,&skin.value,&mut state.draft.power_saving_idle,"自定义省电待机");
                 ui.add_enabled_ui(state.draft.power_saving_idle,|ui|fps_control(ui,&skin.value,"待机帧率",&mut state.draft.idle_fps));
@@ -363,9 +335,6 @@ pub fn settings_ui(
                     if button(ui, &skin.value, "保存并应用").clicked() {
                         action = Some(Action::Save);
                     }
-                    if button(ui, &skin.value, "角色选择").clicked() {
-                        action = Some(Action::Selector);
-                    }
                     if state.settings.data_dir != state.active_data_dir
                         && button(ui, &skin.value, "重新启动").clicked()
                     {
@@ -391,9 +360,19 @@ pub fn settings_ui(
             }
         }
         Some(Action::Manage) => {
-            state.chooser = false;
+            state.open_settings(true);
+            state.page = UiPage::Management;
         }
-        Some(Action::Selector) => {
+        Some(Action::SaveRoles) => {
+            if let Err(e) = state.save_roles() {
+                state.message = e;
+            } else {
+                for c in &state.draft.connections {
+                    resolver.request(&c.id, &c.status_url);
+                }
+            }
+        }
+        Some(Action::CancelRoles) => {
             state.message.clear();
             state.open_settings(true);
         }
@@ -412,65 +391,7 @@ pub fn settings_ui(
             }
         }
         Some(Action::Save) => {
-            let result = (|| -> Result<(), String> {
-                for c in &mut state.draft.connections {
-                    c.status_url = normalize_status_url(&c.status_url)?;
-                    if c.name.trim().is_empty() {
-                        c.name = crate::settings::provisional_name(&c.status_url);
-                    }
-                }
-                for c in &state.draft.connections {
-                    resolver.request(&c.id, &c.status_url);
-                }
-                let selected = state.draft.selected_connection_id.clone();
-                state.draft.status_url = state
-                    .draft
-                    .active_connection()
-                    .map(|c| c.status_url.clone())
-                    .unwrap_or_default();
-                state.draft.position = state.settings.position;
-                let merged = state.draft.save_merged(&state.settings, &state.path)?;
-                let changed_resource = state.draft.data_dir != state.active_data_dir;
-                state.settings = state.draft.clone();
-                state.settings.connections = merged.connections;
-                if let Some(id) =
-                    selected.filter(|id| state.settings.connections.iter().any(|c| &c.id == id))
-                {
-                    if !changed_resource {
-                        let next_url = state
-                            .settings
-                            .connections
-                            .iter()
-                            .find(|c| c.id == id)
-                            .map(|c| c.status_url.clone())
-                            .unwrap_or_default();
-                        if state.active_connection_id.as_deref() != Some(id.as_str())
-                            || state.active_url != next_url
-                        {
-                            state.activate(
-                                &id,
-                                &poller,
-                                &mut frame,
-                                &mut reveal,
-                                &mut interaction,
-                            )?;
-                        } else {
-                            state.open = false;
-                            state.chooser = false;
-                            state.draft = state.settings.clone();
-                        }
-                    }
-                } else {
-                    state.chooser = state.active_url.is_empty();
-                }
-                state.message = if changed_resource {
-                    "已保存，请重新启动以加载资源目录。".into()
-                } else {
-                    String::new()
-                };
-                Ok(())
-            })();
-            if let Err(e) = result {
+            if let Err(e) = state.save_preferences() {
                 state.message = e;
             }
         }
@@ -479,7 +400,7 @@ pub fn settings_ui(
                 exit.write(AppExit::Success);
             } else {
                 state.open = false;
-                state.chooser = false;
+                state.page = UiPage::Settings;
             }
         }
         Some(Action::Exit) => {

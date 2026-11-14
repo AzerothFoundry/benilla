@@ -16,7 +16,7 @@ fn setup(mut c:Commands,assets:Res<AssetServer>,ui:Res<crate::UiState>){
  });
 }
 fn update(gesture:Res<CompanionLocalGesture>,interaction:Res<crate::Interaction>,ui:Res<crate::UiState>,mut bubbles:Query<&mut Visibility,With<Bubble>>,mut lines:Query<&mut Text,With<Line>>,mut cameras:Query<&mut Camera,With<SpeechCamera>>){
- let show=ui.settings.show_speech_bubble&&interaction.dancing&&gesture.active&&gesture.selected.is_some()&&!ui.chooser;
+ let show=ui.settings.show_speech_bubble&&interaction.dancing&&gesture.active&&gesture.selected.is_some()&&ui.page==crate::UiPage::Settings;
  for mut camera in &mut cameras{if camera.is_active!=show{camera.is_active=show;}}
  for mut visibility in &mut bubbles{let next=if show{Visibility::Inherited}else{Visibility::Hidden};if *visibility!=next{*visibility=next;}}
  if show{for mut text in &mut lines{let next=dialogue(gesture.selected.unwrap(),gesture.request);if text.0!=next{text.0=next.into();}}}
@@ -33,7 +33,7 @@ fn dialogue(animation:u16,request:u64)->&'static str{
 #[cfg(test)]mod render_gate_tests {
  use super::*;
  #[test]fn speech_camera_only_runs_for_visible_local_dialogue(){
-  let mut app=App::new();let mut ui=crate::UiState::default();ui.settings.show_speech_bubble=true;ui.chooser=false;
+  let mut app=App::new();let mut ui=crate::UiState::default();ui.settings.show_speech_bubble=true;ui.page=crate::UiPage::Settings;
   app.insert_resource(ui).init_resource::<crate::Interaction>().init_resource::<CompanionLocalGesture>().add_systems(Update,update);
   let cam=app.world_mut().spawn((SpeechCamera,Camera::default())).id();app.world_mut().spawn((Bubble,Visibility::Hidden));app.world_mut().spawn((Line,Text::new("")));
   app.update();assert!(!app.world().get::<Camera>(cam).unwrap().is_active);
