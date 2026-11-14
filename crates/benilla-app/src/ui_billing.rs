@@ -364,12 +364,16 @@ mod tests {
         assert_eq!(
             s.eval::<String>("return StaticPopup1Text:GetText()")
                 .unwrap(),
-            "Your play time expires in 1 Minute"
+            s.eval::<String>("return format(BILLING_NAG_DIALOG, 1, GetText('MINUTES', nil, 1))")
+                .unwrap()
         );
+        let warning = s
+            .eval::<String>("return format(GetText('BILLING_NAG_WARNING', nil, 1), 1)")
+            .unwrap();
         frame(&mut app, 32);
         assert_eq!(
             app.world().resource::<ChatLog>().pending_lines(),
-            vec!["Your play time expires in 1 minute".to_string()]
+            vec![warning]
         );
     }
 }

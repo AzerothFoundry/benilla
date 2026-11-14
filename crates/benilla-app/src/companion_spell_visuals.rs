@@ -66,6 +66,7 @@ pub(crate) fn install(app: &mut App) {
     app.init_resource::<FxTintAnims>()
         .init_resource::<FxPolicy>()
         .add_message::<SpellKitFx>()
+        .add_message::<crate::entities::DisplaySwapped>()
         .add_systems(Startup, load.after(AssetSet::Open))
         .add_systems(
             Update,
@@ -521,5 +522,18 @@ mod tests {
         assert!(kit_slots(&data, food)
             .iter()
             .any(|s| s.tag == 22 && s.path.to_lowercase().contains("bread")));
+    }
+}
+
+#[cfg(test)]
+mod bootstrap_tests {
+    use super::*;
+    #[test]
+    fn standalone_effects_register_the_shared_resolvers_display_events() {
+        let mut app = App::new();
+        install(&mut app);
+        assert!(app
+            .world()
+            .contains_resource::<Messages<crate::entities::DisplaySwapped>>());
     }
 }
