@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+const CONFIG_VERSION:u32=1;
 const DEFAULT_URL: &str = "http://192.168.3.16:18112/status?view=companion";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connection {
@@ -33,6 +34,7 @@ pub const VISIBLE_EQUIPMENT_SLOTS: &[(u8, &str)] = &[
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub schema_version: u32,
     /// Compatibility mirror of the active connection; not a second connection registry.
     pub status_url: String,
     pub connections: Vec<Connection>,
@@ -54,6 +56,12 @@ pub struct Settings {
     #[serde(default)]
     pub equipment_visibility: BTreeMap<u8, bool>,
     pub position: Option<[i32; 2]>,
+}
+fn config_version(value:&serde_json::Value)->Result<u32,String>{
+    match value.get("schema_version"){
+        None=>Ok(0),
+        Some(version)=>match version.as_u64(){Some(v) if v<=CONFIG_VERSION as u64=>Ok(v as u32),_=>Err("配置来自更新版本或版本号无效，请保留原文件并升级应用".into())}
+    }
 }
 fn stable_id(url: &str) -> String {
     let mut hash = 0xcbf29ce484222325u64;
@@ -98,6 +106,7 @@ impl Default for Settings {
     fn default() -> Self {
         let c = legacy_connection(DEFAULT_URL);
         Self {
+            schema_version: CONFIG_VERSION,
             status_url: DEFAULT_URL.into(),
             selected_connection_id: Some(c.id.clone()),
             connections: vec![c],
@@ -131,6 +140,28 @@ impl Settings {
         if let Some(value)=value{for (slot,_) in VISIBLE_EQUIPMENT_SLOTS{if *slot!=0{self.equipment_visibility.insert(*slot,value);}}}
     }
 
+    /// Explicit startup migration: lock, preserve original bytes, then atomically publish.
+    /// load/save_merged never recursively acquire this migration lock.
+    pub fn upgrade_file(path:&Path)->Result<(),String>{
+        if !path.exists(){return Ok(());}
+        let _lock=transaction_lock(path)?;
+        let bytes=std::fs::read(path).map_err(|e|e.to_string())?;
+        let mut value:serde_json::Value=serde_json::from_slice(&bytes).map_err(|e|e.to_string())?;
+        let version=config_version(&value)?;
+        if version==CONFIG_VERSION{return Ok(());}
+        // Validate and normalize through the existing legacy URL/profile migration.
+        let settings=Self::load(path)?;
+        let object=value.as_object_mut().ok_or("配置必须是对象")?;
+        for (key,value) in serde_json::to_value(&settings).map_err(|e|e.to_string())?.as_object().unwrap(){
+            object.entry(key.clone()).or_insert_with(||value.clone());
+        }
+        object.insert("schema_version".into(),CONFIG_VERSION.into());
+        let folder=path.parent().ok_or("配置路径无效")?.join("backups");std::fs::create_dir_all(&folder).map_err(|e|e.to_string())?;
+        let backup=folder.join(format!("settings-v{version}-{}.json",unique()));
+        let mut file=OpenOptions::new().create_new(true).write(true).open(backup).map_err(|e|e.to_string())?;
+        file.write_all(&bytes).map_err(|e|e.to_string())?;file.sync_all().map_err(|e|e.to_string())?;
+        write_atomic(path,&value)
+    }
     pub fn load(path: &Path) -> Result<Self, String> {
         if !path.exists() {
             return Ok(Self::default());
@@ -138,8 +169,10 @@ impl Settings {
         let value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
+        config_version(&value)?;
         let legacy = value.get("connections").is_none();
         let mut settings: Self = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        settings.schema_version=CONFIG_VERSION;
         if legacy {
             settings.connections = if settings.status_url.is_empty() {
                 vec![]
@@ -223,6 +256,7 @@ impl Settings {
         old != self.connections.len()
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version!=CONFIG_VERSION{return Err("不支持的配置版本".into());}
         if !(2..=120).contains(&self.idle_fps) || !(2..=120).contains(&self.active_fps) {
             return Err("待机和活动帧率必须在2–120之间".into());
         }
@@ -524,7 +558,7 @@ fn transaction_lock(path: &Path) -> Result<File, String> {
         }
     }
 }
-fn write_locked(path: &Path, value: &impl Serialize) -> Result<(), String> {
+pub(crate) fn write_locked(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let _lock = transaction_lock(path)?;
     write_atomic(path, value)
 }
@@ -1065,4 +1099,22 @@ mod tests {
             .any(|(s, _)| [1, 10, 11, 12, 13].contains(s)));
         std::fs::remove_dir_all(d).unwrap();
     }
+}
+
+#[cfg(test)] mod upgrade_tests {
+ use super::*;
+ fn fixture()->PathBuf{let p=std::env::temp_dir().join(format!("companion-upgrade-{}",unique()));std::fs::create_dir_all(&p).unwrap();p.join("settings.json")}
+ #[test]fn upgrade_preserves_choices_backs_up_exact_bytes_and_is_idempotent(){
+  let p=fixture();let mut old=serde_json::to_value(Settings::default()).unwrap();
+  old.as_object_mut().unwrap().remove("schema_version");old.as_object_mut().unwrap().remove("idle_fps");old.as_object_mut().unwrap().remove("active_fps");
+  old["power_saving_idle"]=false.into();old["scale_percent"]=150.into();old["operator_note"]="keep me".into();
+  let bytes=serde_json::to_vec(&old).unwrap();std::fs::write(&p,&bytes).unwrap();Settings::upgrade_file(&p).unwrap();
+  let s=Settings::load(&p).unwrap();assert_eq!(s.scale_percent,150.);assert!(!s.power_saving_idle);assert_eq!((s.idle_fps,s.active_fps),(4,30));
+  let disk:serde_json::Value=serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();assert_eq!(disk["operator_note"],"keep me");assert_eq!(disk["connections"],old["connections"]);
+  let backups:Vec<_>=std::fs::read_dir(p.parent().unwrap().join("backups")).unwrap().map(|e|e.unwrap().path()).collect();assert_eq!(backups.len(),1);assert_eq!(std::fs::read(&backups[0]).unwrap(),bytes);
+  let upgraded=std::fs::read(&p).unwrap();Settings::upgrade_file(&p).unwrap();assert_eq!(std::fs::read(&p).unwrap(),upgraded);assert_eq!(std::fs::read_dir(p.parent().unwrap().join("backups")).unwrap().count(),1);
+  std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+ }
+ #[test]fn legacy_single_url_is_upgraded_without_losing_connection(){let p=fixture();std::fs::write(&p,r#"{"status_url":"http://localhost:24567/status","scale_percent":125}"#).unwrap();Settings::upgrade_file(&p).unwrap();let s=Settings::load(&p).unwrap();assert_eq!(s.connections.len(),1);assert!(s.status_url.contains("24567"));assert_eq!(s.scale_percent,125.);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
+ #[test]fn future_or_broken_files_are_never_overwritten(){let p=fixture();for bytes in [r#"{"schema_version":99}"#, "{broken"]{std::fs::write(&p,bytes).unwrap();assert!(Settings::upgrade_file(&p).is_err());assert!(Settings::load(&p).is_err());assert_eq!(std::fs::read_to_string(&p).unwrap(),bytes);}std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
 }

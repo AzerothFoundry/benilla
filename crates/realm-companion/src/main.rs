@@ -62,7 +62,9 @@ struct SettingsCamera;
 
 fn main() -> AppExit {
     let path = settings::config_path();
-    let (mut settings, mut setup_message) = match Settings::load(&path) {
+    let read_only_cli=std::env::args().any(|arg|matches!(arg.as_str(),"--export-app-icon"|"--help"));
+    let loaded=if read_only_cli{Settings::load(&path)}else{Settings::upgrade_file(&path).and_then(|_|Settings::load(&path))};
+    let (mut settings, mut setup_message) = match loaded {
         Ok(s) => (s, String::new()),
         Err(e) => (
             Settings::default(),
@@ -228,6 +230,7 @@ fn main() -> AppExit {
     app.insert_resource(benilla_app::companion_renderer::CompanionFxOptions {spell_effects:settings.show_spell_effects,enchant_effects:settings.show_enchant_effects,equipment_effects:settings.show_equipment_effects});
     app.insert_resource(benilla_app::companion_renderer::CompanionAppearanceOptions{show_helm:settings.show_helm,equipment_visibility:settings.equipment_visibility.clone()});
     let mut resolver = names::NameResolver::default();
+    resolver.set_data_dir(&settings.data_dir);
     for c in &settings.connections {
         resolver.request(&c.id, &c.status_url);
     }
@@ -540,6 +543,7 @@ fn setup_settings_window(mut c: Commands, ui: Res<UiState>) {
     let window = c
         .spawn((
             SettingsWindow,
+            benilla_app::companion_renderer::CompanionSelectorWindow,
             Window {
                 title: "桌宠设置".into(),
                 resolution: (1120, 630).into(),
