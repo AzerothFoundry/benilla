@@ -150,19 +150,21 @@ pub fn settings_ui(
                 for c in &state.draft.connections{resolver.request(&c.id,&c.status_url);}
                 let selected=state.draft.selected_connection_id.clone();
                 ui.scope_builder(egui::UiBuilder::new().max_rect(layout.list),|ui|{
-                    let scroll=egui::ScrollArea::vertical().id_salt("portrait-role-list").min_scrolled_height(544.).max_height(544.).auto_shrink([false,false]).show(ui,|ui|{
-                        ui.spacing_mut().item_spacing.y=4.;
+                    egui::Frame::NONE.inner_margin(egui::Margin{left:0,right:0,top:10,bottom:12}).show(ui,|ui|{
+                    let scroll=egui::ScrollArea::vertical().id_salt("portrait-role-list").min_scrolled_height(522.).max_height(522.).auto_shrink([false,false]).show(ui,|ui|{
+                        ui.spacing_mut().item_spacing.y=6.;
                         for c in state.draft.connections.clone(){
                             let name=state.cached_names.get(&c.id).unwrap_or(&c.name);
                             let profile=resolver.profile(&state.path,&c.id,&c.status_url).clone();
-                            let r=if let Some(skin)=&skin.value{skin.character_row(ui,name,&profile.description(),profile.location.as_deref().unwrap_or("地区未知"),selected.as_ref()==Some(&c.id))}else{ui.add_sized([340.,64.],egui::Button::new(name).selected(selected.as_ref()==Some(&c.id)))};
+                            let r=if let Some(skin)=&skin.value{skin.character_row(ui,name,&profile.description(),profile.location.as_deref().unwrap_or("地区未知"),selected.as_ref()==Some(&c.id))}else{ui.add_sized([340.,60.],egui::Button::new(name).selected(selected.as_ref()==Some(&c.id)))};
                             if r.clicked(){let _=state.draft.select_connection(&c.id);}
                             if r.double_clicked(){action=Some(Action::Enter(c.id.clone()));}
-                            r.on_hover_text(&c.status_url);
+
                         }
                         if state.draft.connections.is_empty(){ui.label("尚未添加角色，请点击“管理角色”。");}
                     });
                     if let Some(skin)=&skin.value{skin.scroll_art(ui,scroll.inner_rect,scroll.content_size,scroll.state.offset);}
+                    });
                 });
                 let enter=ui.scope_builder(egui::UiBuilder::new().max_rect(layout.enter),|ui|ui.add_enabled_ui(selected.is_some(),|ui|sized_button(ui,&skin.value,"进入角色",160.)).inner).inner;
                 if enter.clicked(){if let Some(id)=selected{action=Some(Action::Enter(id));}}
@@ -194,7 +196,7 @@ pub fn settings_ui(
                                 }
                             }
                         });
-                    if button(ui, &skin.value, "添加").clicked() {
+                    if button(ui, &skin.value, "添加角色").clicked() {
                         action = Some(Action::Add);
                     }
                     if button(ui, &skin.value, "移除角色").on_hover_text("只移除连接，不会删除游戏角色").clicked() {
@@ -212,19 +214,22 @@ pub fn settings_ui(
                             }
                         ));
                         ui.label("完整 status URL");
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut c.status_url)
-                                .desired_width(f32::INFINITY),
-                        );
-                        if response.changed() {
-                            c.name = crate::settings::provisional_name(&c.status_url);
-                        }
-                        if response.lost_focus() {
-                            resolver.request(&c.id, &c.status_url);
+                        ui.horizontal(|ui|{
+                            let response=ui.add(egui::TextEdit::singleline(&mut c.status_url).desired_width((ui.available_width()-120.).max(180.)));
+                            if response.changed(){c.name=crate::settings::provisional_name(&c.status_url);}
+                            if response.lost_focus(){resolver.request(&c.id,&c.status_url);}
+                            let testing=matches!(resolver.test_status(&c.id,&c.status_url),Some(crate::names::ConnectionTest::Testing));
+                            if ui.add_enabled_ui(!testing,|ui|button(ui,&skin.value,if testing{"测试中…"}else{"测试连接"})).inner.clicked(){resolver.test_connection(&c.id,&c.status_url);}
+                        });
+                        if let Some(status)=resolver.test_status(&c.id,&c.status_url){
+                            let (color,text)=match status{
+                                crate::names::ConnectionTest::Testing=>(crate::skin::GOLD,"正在测试连接…".to_owned()),
+                                crate::names::ConnectionTest::Passed{character,online}=>(egui::Color32::from_rgb(64,220,96),format!("连接成功：{character}{}",match online{Some(true)=>"（角色在线）",Some(false)=>"（角色离线）",None=>""})),
+                                crate::names::ConnectionTest::Failed(error)=>(egui::Color32::LIGHT_RED,format!("连接失败：{error}")),
+                            };ui.colored_label(color,text);
                         }
                     }
                 }
-                ui.small("事件接口自动发现；不可用时回退到 status 轮询。");
                 });
                 if let Some(skin)=&skin.value{skin.scroll_art(ui,scroll.inner_rect,scroll.content_size,scroll.state.offset);}
                 ui.separator();ui.horizontal(|ui|{
@@ -417,7 +422,7 @@ pub fn settings_ui(
                 String::new(),
                 "http://127.0.0.1:20001/status?view=companion".into(),
             ) {
-                Ok(_) => state.message = "只需填写地址，角色名字会自动读取。".into(),
+                Ok(_) => state.message.clear(),
                 Err(e) => state.message = e,
             }
         }

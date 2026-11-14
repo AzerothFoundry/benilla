@@ -184,6 +184,7 @@ impl WowSkin {
         self.paint_backdrop(
             ui,
             rect,
+            rect.shrink(10.),
             &self.background,
             &self.border,
             32.,
@@ -196,6 +197,7 @@ impl WowSkin {
         &self,
         ui: &egui::Ui,
         rect: Rect,
+        background: Rect,
         bg: &TextureHandle,
         border: &TextureHandle,
         edge: f32,
@@ -207,7 +209,6 @@ impl WowSkin {
             return;
         }
         let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-        let background = rect.shrink(10.0);
         tiles(&painter, bg.id(), background, tile, bg_tint, |r, part| {
             (
                 r,
@@ -367,7 +368,7 @@ impl WowSkin {
             ui.painter().image(
                 image,
                 canvas,
-                cover_uv(16./9., canvas.aspect_ratio()),
+                cover_uv(16. / 9., canvas.aspect_ratio()),
                 Color32::WHITE,
             );
         }
@@ -398,9 +399,16 @@ impl WowSkin {
                 Color32::from_white_alpha(160),
             );
         }
+        let panel = layout.list.expand2(Vec2::new(24., 8.));
+        // CharacterSelect.xml BackgroundInsets: left10, right5, top4, bottom9.
+        let fill = Rect::from_min_max(
+            panel.min + Vec2::new(10., 4.),
+            panel.max - Vec2::new(5., 9.),
+        );
         self.paint_backdrop(
             ui,
-            layout.list.expand2(Vec2::new(24., 8.)),
+            panel,
+            fill,
             &self.selector_background,
             &self.selector_border,
             16.,
@@ -418,7 +426,7 @@ impl WowSkin {
         selected: bool,
     ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(ui.available_width().min(340.), 64.0),
+            Vec2::new(ui.available_width().min(340.), 60.0),
             egui::Sense::click(),
         );
         if selected || response.hovered() {
@@ -857,7 +865,7 @@ mod portrait_layout_tests {
         assert_eq!(l.manage.center().x, l.list.center().x);
         assert!(l.logo.bottom() < l.manage.top());
         assert!(l.manage.bottom() < l.list.top());
-        assert!(8. * 64. + 7. * 4. <= l.list.height());
+        assert!(10. + 8. * 60. + 7. * 6. + 12. <= l.list.height());
         assert!(l.list.bottom() < l.enter.top());
         assert_eq!(l.enter.size(), l.exit.size());
         assert!(rect.contains_rect(l.enter) && rect.contains_rect(l.exit));
