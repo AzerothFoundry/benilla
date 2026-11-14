@@ -7,7 +7,7 @@ cargo run --release -p realm-companion -- --data /path/to/WoW/Data \
   --url 'http://192.168.3.16:18112/status?view=companion'
 ```
 
-On macOS use the menu-bar icon: the class icon → **桌宠设置…** or **选择角色…**. Right-click/F2 also opens settings. Left-drag moves the avatar. Settings is an independent window centered on the active desktop; there is no settings button drawn over the avatar. Multiple instances are supported, and each exits through its own menu/settings Exit action.
+On macOS use the menu-bar icon: the class icon → **设置…** or **选择角色…**. Right-click/F2 also opens settings. Left-drag moves the avatar. Settings is an independent window centered on the active desktop; there is no settings button drawn over the avatar. Multiple instances are supported, and each exits through its own menu or selection-page Exit action.
 
 ## Connections and startup
 
@@ -97,7 +97,7 @@ The speech band uses a clip-space projection remap inside a full-size transparen
 
 The selector uses 896×504 logical pixels (16:9), a compact character list, double-click or Enter Character, Manage Connections, Exit. Removed duplicate return and persistent saved-success text. Settings remain a 760×680 scrollable form. Stock slider/scroll knob artwork is read from MPQ; percentage is an editable text field instead of DragValue. Checked-state artwork remains visible on hover. Show All, Hide All, Follow Game control every supported equipment slot. Equipment visibility, FX preferences and scale preview the draft while editing; save persists, closing settings returns to saved presentation. Runtime/agent state is never modified by preview.
 
-### Selector, role management and settings (0.4.10)
+### Selector, role management and settings (0.4.11)
 
 These are three separate pages. The default selector is approximately 450×800 logical (9:16): centered WoW logo at the top, “管理角色”, eight 64px rows with 4px spacing in a 544px scroll region, then fixed equal-width “进入角色” / “退出”. Extra roles scroll. Hover never selects; single-click selects, double-click or Enter enters, and arrows change selection. No character preview or rotation is loaded.
 
@@ -105,7 +105,7 @@ Small displays reduce the window and egui controls by the same factor, using the
 
 Role management is a separate compact760×420 form, also accessible with `--manage-roles`. It adds/edits/removes URLs, automatically resolves names, and returns to selection after Save or Cancel. Saving only persists the role registry; it cannot command the poller or switch the currently running pet. Removal never deletes a server character.
 
-Settings remains a760×680 grouped form: display/performance, appearance/effects, interaction/audio and resources/status. It shows the current character as read-only information; there is no character picker, URL editor or selection-page button. Use the menu's “选择角色…” to switch roles. Settings save only applies preferences and never role-selection/URL edits. Live preview is exclusive to the settings page; management and selection use saved preferences. Save/Cancel remain outside scrolling content.
+Settings remains a760×680 grouped form: display/performance, appearance/effects, interaction/audio and resources/status. The window/menu title is “设置”. Its fixed header shows the current character with a “选择角色” navigation button alongside it. There is no editable role picker or URL editor here. The normal footer contains only “保存” and “取消”; a restart action appears when a resource-directory change requires it. The menu's “选择角色…” remains another entry. If unsaved preferences exist, either entry offers Save and continue / Discard / Keep editing; a failed save retains the draft and does not navigate. Settings save only applies preferences and never role-selection/URL edits. Live preview is exclusive to the settings page; management and selection use saved preferences. Save/Cancel remain outside scrolling content.
 
 Each role row shows name, level/class and last-known region. The resolver reads existing status data at most once per source per30seconds while the interface is open, without game actions. Per-profile/per-URL caches retain only role metadata. Region uses an explicit area name when supplied, otherwise the smallest enclosing WorldMapArea rectangle localized through AreaTable; this is a region estimate, not exact WMO/subzone detection. Unknown fields are shown as unknown. Controls remain Rust/egui with original textures/fonts; the system pointer is unchanged.
 
