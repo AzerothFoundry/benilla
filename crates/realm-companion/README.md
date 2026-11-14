@@ -91,7 +91,7 @@ Coverage note: the first standalone voice lane uses EmotesTextSound only. M2 key
 
 The app bundle/window icon is now the stock WoW logo; the tray continues to show the connected actor's class (WoW when offline). Packaging exports the logo from the configured local Data before generating ICNS, avoiding the old generated Frostbolt image.
 
-The speech band uses a clip-space projection remap inside a full-size transparent render target; it no longer creates a partial camera viewport. The geometry hit mask clones the exact same projection. A full transparent clear and explicit zero-alpha speech band prevent undefined header pixels from becoming an opaque blue rectangle. Speech UI renders later and never becomes a body mouse target.
+The speech band uses a clip-space projection remap inside a full-size transparent render target; it no longer creates a partial camera viewport. The geometry hit mask clones the exact same projection. A full transparent clear keeps empty margins transparent. The bubble retains its original 8px inset within the speech band, shifted down with the extra 96-unit effect margin. Speech UI renders later and never becomes a body mouse target.
 
 ### Settings and selector (0.4.4)
 

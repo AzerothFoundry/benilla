@@ -9,7 +9,8 @@ fn setup(mut c:Commands,assets:Res<AssetServer>,ui:Res<crate::UiState>){
  // The full-size 3D target already clears transparent; no extra empty clear pass.
  let camera=c.spawn((SpeechCamera,Camera2d,Camera{order:100,is_active:false,clear_color:ClearColorConfig::None,..default()})).id();
  let font=benilla_formats::Chain::open(std::path::Path::new(&ui.active_data_dir)).ok().and_then(|chain|["Fonts/FZLBJW.TTF","Fonts/FZXHJW.TTF","Fonts/ARIALN.TTF"].into_iter().find(|name|chain.contains(name))).map(|name|assets.load(format!("mpq://{}",name.to_ascii_lowercase()))).unwrap_or_default();
- c.spawn((Bubble,UiTargetCamera(camera),Node{position_type:PositionType::Absolute,top:px(8),width:percent(100),justify_content:JustifyContent::Center,..default()},Visibility::Hidden)).with_children(|c|{
+ // Move the original speech band with the 96-unit effect padding; retain its 8px inset.
+ c.spawn((Bubble,UiTargetCamera(camera),Node{position_type:PositionType::Absolute,top:percent(100.0 * 96.0 / 396.0),margin:UiRect::top(px(8)),width:percent(100),justify_content:JustifyContent::Center,..default()},Visibility::Hidden)).with_children(|c|{
   c.spawn((Node{padding:UiRect::axes(px(12),px(7)),border:UiRect::all(px(2)),max_width:percent(90),border_radius:BorderRadius::all(px(12)),..default()},BackgroundColor(Color::srgba(1.,0.98,0.90,0.97)),BorderColor::all(Color::srgb(0.18,0.12,0.06)))).with_children(|c|{
    c.spawn((Line,Text::new(""),TextFont{font,font_size:18.,..default()},TextColor(Color::srgb(0.12,0.08,0.03))));
   });
