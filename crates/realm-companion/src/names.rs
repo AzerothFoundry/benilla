@@ -18,6 +18,8 @@ pub(crate) struct RoleProfile {
     pub level: Option<u32>,
     pub location: Option<String>,
     #[serde(skip)]
+    pub connected: Option<bool>,
+    #[serde(skip)]
     position: Option<ProfilePosition>,
 }
 #[derive(Clone, serde::Deserialize)]
@@ -94,10 +96,23 @@ struct Answer {
     url: String,
     name: Option<String>,
     profile: Option<RoleProfile>,
+    probe: bool,
+    error: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ConnectionTest {
+    Testing,
+    Passed {
+        character: String,
+        online: Option<bool>,
+    },
+    Failed(String),
 }
 #[derive(Resource)]
 pub(crate) struct NameResolver {
     send: mpsc::Sender<Request>,
+    probe_answers: mpsc::Sender<Answer>,
+    tests: HashMap<(String, String), ConnectionTest>,
     answers: Mutex<mpsc::Receiver<Answer>>,
     requested: HashMap<(String, String), Instant>,
     pub races: HashMap<(String, String), u8>,
@@ -155,6 +170,8 @@ impl Default for NameResolver {
                                 url: request.url,
                                 name,
                                 profile,
+                                probe: false,
+                                error: None,
                             })
                             .is_err()
                         {
@@ -166,6 +183,8 @@ impl Default for NameResolver {
         }
         Self {
             send: tx,
+            probe_answers: out,
+            tests: HashMap::new(),
             answers: Mutex::new(answers),
             requested: HashMap::new(),
             races: HashMap::new(),
@@ -175,6 +194,70 @@ impl Default for NameResolver {
     }
 }
 impl NameResolver {
+    fn test_key(id: &str, url: &str) -> (String, String) {
+        (
+            id.into(),
+            normalize_status_url(url).unwrap_or_else(|_| url.into()),
+        )
+    }
+    pub fn test_status(&self, id: &str, url: &str) -> Option<&ConnectionTest> {
+        self.tests.get(&Self::test_key(id, url))
+    }
+    pub fn test_connection(&mut self, id: &str, url: &str) {
+        let key = Self::test_key(id, url);
+        if matches!(self.tests.get(&key), Some(ConnectionTest::Testing)) {
+            return;
+        }
+        let url = match normalize_status_url(url) {
+            Ok(url) => url,
+            Err(e) => {
+                self.tests.insert(key, ConnectionTest::Failed(e));
+                return;
+            }
+        };
+        self.tests.insert(key.clone(), ConnectionTest::Testing);
+        let send = self.probe_answers.clone();
+        let id = id.to_owned();
+        // User tests bypass the background metadata queue and its30second cache.
+        let started = std::thread::Builder::new()
+            .name("companion-connection-test".into())
+            .spawn(move || {
+                let client = ureq::AgentBuilder::new()
+                    .timeout(Duration::from_secs(4))
+                    .build();
+                let (name, profile, error) = match fetch_profile(&client, &url) {
+                    Ok((name, profile)) => (Some(name), Some(profile), None),
+                    Err(error) => (None, None, Some(error)),
+                };
+                let _ = send.send(Answer {
+                    id,
+                    url,
+                    name,
+                    profile,
+                    probe: true,
+                    error,
+                });
+            });
+        if let Err(error) = started {
+            self.tests
+                .insert(key, ConnectionTest::Failed(error.to_string()));
+        }
+    }
+    fn record_probe(&mut self, answer: &Answer) {
+        if !answer.probe {
+            return;
+        }
+        let status = if let Some(error) = &answer.error {
+            ConnectionTest::Failed(error.clone())
+        } else {
+            ConnectionTest::Passed {
+                character: answer.name.clone().unwrap_or_default(),
+                online: answer.profile.as_ref().and_then(|p| p.connected),
+            }
+        };
+        self.tests
+            .insert((answer.id.clone(), answer.url.clone()), status);
+    }
     pub fn set_data_dir(&mut self, path: &str) {
         if self.data_dir != path {
             self.data_dir = path.into();
@@ -234,7 +317,7 @@ fn fetch_profile(client: &ureq::Agent, url: &str) -> Result<(String, RoleProfile
         .header("Content-Type")
         .is_some_and(|s| s.starts_with("text/event-stream"))
     {
-        return Err("expected status JSON".into());
+        return Err("请填写状态接口地址，当前地址返回的是事件流".into());
     }
     let mut bytes = Vec::new();
     response
@@ -243,14 +326,14 @@ fn fetch_profile(client: &ureq::Agent, url: &str) -> Result<(String, RoleProfile
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() > 1024 * 1024 {
-        return Err("status too large".into());
+        return Err("状态响应过大".into());
     }
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     let name = value["character"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_owned())
-        .ok_or_else(|| "character not yet known".to_owned())?;
+        .ok_or_else(|| "接口未返回角色信息".to_owned())?;
     let race = value["appearance"]["race"]
         .as_u64()
         .or_else(|| value["race"].as_u64())
@@ -282,6 +365,7 @@ fn fetch_profile(client: &ureq::Agent, url: &str) -> Result<(String, RoleProfile
             class_id,
             level,
             location,
+            connected: value["connected"].as_bool(),
             position,
         },
     ))
@@ -352,6 +436,7 @@ pub(crate) fn updates(
     }
     let answers: Vec<_> = resolver.answers.lock().unwrap().try_iter().collect();
     for answer in answers {
+        resolver.record_probe(&answer);
         if let Some(profile) = answer.profile {
             let key = (answer.id.clone(), answer.url.clone());
             let mut merged = resolver.profile(&ui.path, &answer.id, &answer.url).clone();
@@ -465,6 +550,93 @@ mod profile_tests {
                 .resolve(profile.position.as_ref().unwrap())
                 .is_some());
         }
+        worker.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+    fn receive(resolver: &mut NameResolver) -> Answer {
+        let answer = resolver
+            .answers
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        resolver.record_probe(&answer);
+        answer
+    }
+    #[test]
+    fn explicit_test_is_fresh_and_reports_offline_character_then_failure() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let url = format!("http://{address}/status");
+        let worker = std::thread::spawn(move || {
+            use std::io::Write;
+            for (code, body) in [
+                (200, r#"{"character":"Ada","connected":false}"#),
+                (503, "unavailable"),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut input = [0; 2048];
+                stream.read(&mut input).unwrap();
+                write!(stream,"HTTP/1.1 {code} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+            }
+        });
+        let mut resolver = NameResolver::default();
+        resolver
+            .requested
+            .insert(("ada".into(), url.clone()), Instant::now());
+        resolver.test_connection("ada", &url);
+        assert_eq!(
+            resolver.test_status("ada", &url),
+            Some(&ConnectionTest::Testing)
+        );
+        let answer = receive(&mut resolver);
+        assert_eq!(answer.name.as_deref(), Some("Ada"));
+        assert_eq!(
+            resolver.test_status("ada", &url),
+            Some(&ConnectionTest::Passed {
+                character: "Ada".into(),
+                online: Some(false)
+            })
+        );
+        resolver.test_connection("ada", &url);
+        receive(&mut resolver);
+        assert!(
+            matches!(resolver.test_status("ada",&url),Some(ConnectionTest::Failed(error))if error.contains("503"))
+        );
+        assert!(resolver
+            .test_status("ada", "http://localhost:1/status")
+            .is_none());
+        worker.join().unwrap();
+    }
+    #[test]
+    fn invalid_url_and_non_role_response_do_not_pass() {
+        let mut resolver = NameResolver::default();
+        resolver.test_connection("ada", "not-a-url");
+        assert!(matches!(
+            resolver.test_status("ada", "not-a-url"),
+            Some(ConnectionTest::Failed(_))
+        ));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || {
+            use std::io::Write;
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut input = [0; 2048];
+            stream.read(&mut input).unwrap();
+            let body = r#"{"ok":true}"#;
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+        });
+        let url = format!("http://{address}/status");
+        resolver.test_connection("ada", &url);
+        receive(&mut resolver);
+        assert!(matches!(
+            resolver.test_status("ada", &url),
+            Some(ConnectionTest::Failed(_))
+        ));
         worker.join().unwrap();
     }
 }
