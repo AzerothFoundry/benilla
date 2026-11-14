@@ -258,6 +258,7 @@ mod tests {
             alpha: vec![0; 256],
             valid: true,
             captured_at: 0.,
+            ..Default::default()
         };
         m.alpha[8 * 16 + 8] = 255;
         assert!(m.contains(Vec2::splat(8.), Vec2::splat(16.)));
