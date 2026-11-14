@@ -534,6 +534,7 @@ fn an_addon_frame_registered_in_uispecialframes_closes_on_escape() {
     load_xml(&s, r"Interface\FrameXML\UIPanelTemplates.xml");
     load_xml(&s, r"Interface\FrameXML\GameMenuFrame.xml");
     load_xml(&s, r"Interface\FrameXML\StaticPopup.xml");
+    load_xml(&s, "ScrollTemplates.xml"); // the layer's localized menu labels
     load_xml(&s, "GameMenuAdapters.xml");
 
     s.run(

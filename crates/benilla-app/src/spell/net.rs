@@ -1219,6 +1219,13 @@ fn cast_result(
     net: &crate::net::NetCommands,
     seq: u64,
 ) -> Option<u32> {
+    crate::target::go_trace::spell_line(
+        spell_id,
+        format_args!(
+            "recv CastResult spell={spell_id} success={success} reason={reason:?} slot={:?}",
+            core.slot().map(super::inflight::Inflight::spell_id)
+        ),
+    );
     cast_result_head(
         spell_id, success, reason, arg, edits, self_guid, index, cooldowns, spells,
     );
@@ -1454,6 +1461,12 @@ fn spell_start(
     is_unit: &dyn Fn(Entity) -> bool,
     seq: u64,
 ) {
+    if crate::target::go_trace::capture_event(spell_id, caster, self_guid.0) {
+        crate::target::go_trace::spell_line(
+            spell_id,
+            format_args!("recv SpellStart spell={spell_id} caster={caster:#x} selfGuid={:?} durationMs={cast_time_ms}",self_guid.0),
+        );
+    }
     // A nonzero cast time marks the caster `Casting`; an instant gets none, its GO follows at once.
     debug!(
         "net: spell start {spell_id} by {caster:#x} ({cast_time_ms}ms, flags \
@@ -1620,6 +1633,19 @@ fn spell_go(
     attack_ctx: (&crate::creature_anim::UnitEdits, bool),
     seq: u64,
 ) -> Option<u64> {
+    if crate::target::go_trace::capture_event(spell_id, caster, self_guid.0)
+        || crate::target::go_trace::capture_event(spell_id, unit_caster, self_guid.0)
+    {
+        crate::target::go_trace::spell_line(
+            spell_id,
+            format_args!(
+                "recv SpellGo spell={spell_id} caster={caster:#x} unitCaster={unit_caster:#x} selfGuid={:?} goTarget={go_target:?} hits={} misses={}",
+                self_guid.0,
+                hits.len(),
+                misses.len()
+            ),
+        );
+    }
     let GoPoints { mask, source, dest } = points;
     debug!(
         "net: spell go {spell_id} by {caster:#x} ({} hit(s), {} miss(es), flags \
@@ -3139,6 +3165,21 @@ mod tests {
             !s.app.world().resource::<PendingCast>().in_flight(),
             "the result opened the slot"
         );
+    }
+
+    #[test]
+    fn consecutive_banner_results_release_the_cast_slot_without_a_streamed_gameobject() {
+        // No GO entities are present: result cleanup must not depend on the old flag surviving.
+        for failure in [None, Some(0x23), Some(0x17)] {
+            let mut s = CastSeq::new();
+            for _ in 0..2 {
+                s.commit(21651, None);
+                assert!(s.app.world().resource::<PendingCast>().in_flight());
+                s.start(21651, 10_000);
+                s.result(21651, failure);
+                assert!(!s.app.world().resource::<PendingCast>().in_flight());
+            }
+        }
     }
 
     /// A channel: the result's STOP comes before the bar opens, since vmangos sends

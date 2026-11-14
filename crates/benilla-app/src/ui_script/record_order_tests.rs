@@ -389,3 +389,53 @@ fn a_notch_runs_no_binding_while_the_dev_overlay_holds_the_pointer() {
     app.update();
     assert_eq!(log(&app), "zoom;", "and does once the overlay lets go");
 }
+
+#[test]
+fn ime_commits_in_window_order_and_confirmation_enter_does_not_submit_chat() {
+    use bevy::window::Ime;
+    let mut app = client();
+    let window = app.world().resource::<PrimaryId>().0;
+    {
+        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        script.run("ProbeBox:Show(); ProbeBox:SetFocus(); ProbeBox:SetScript('OnEnterPressed',function() LOG=LOG..'submit;' end)").unwrap();
+        script.resolve();
+    }
+    app.update();
+    assert!(app.world().get::<Window>(window).unwrap().ime_enabled);
+    app.world_mut()
+        .write_message(WindowEvent::Ime(Ime::Preedit {
+            window,
+            value: "zhongwen".into(),
+            cursor: Some((0, 8)),
+        }));
+    typed(&mut app, KeyCode::KeyW, ButtonState::Pressed, Some("w"));
+    key(&mut app, KeyCode::KeyW, ButtonState::Released);
+    app.world_mut()
+        .write_message(WindowEvent::Ime(Ime::Preedit {
+            window,
+            value: String::new(),
+            cursor: None,
+        }));
+    app.world_mut().write_message(WindowEvent::Ime(Ime::Commit {
+        window,
+        value: "中文任务".into(),
+    }));
+    typed(&mut app, KeyCode::Enter, ButtonState::Pressed, Some("\r"));
+    key(&mut app, KeyCode::Enter, ButtonState::Released);
+    app.update();
+    let script = app.world().non_send_resource::<UiScript>();
+    assert_eq!(
+        script.eval::<String>("return ProbeBox:GetText()").unwrap(),
+        "中文任务"
+    );
+    assert_eq!(script.eval::<String>("return LOG").unwrap(), "");
+    typed(&mut app, KeyCode::Enter, ButtonState::Pressed, Some("\r"));
+    app.update();
+    assert_eq!(
+        app.world()
+            .non_send_resource::<UiScript>()
+            .eval::<String>("return LOG")
+            .unwrap(),
+        "submit;"
+    );
+}

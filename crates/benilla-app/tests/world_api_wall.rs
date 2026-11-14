@@ -123,6 +123,9 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("interact::cast_pick_ray", "record"),
     ("interior::NodeAmbient", "record"),
     ("lighting::LightBlob", "record"),
+    // Engine-owned renderer binding shared with feature-gated preview views; see
+    // docs/COMPANION-RENDER-API.md. Consumers do not interpret its storage layout.
+    ("lighting::SharedLightBuffer", "record"),
     ("lighting::WorldTime", "record"),
     ("lighting::WowLighting", "record"),
     ("mac_quit::MacQuitPlugin", "record"),

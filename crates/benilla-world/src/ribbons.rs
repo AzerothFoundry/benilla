@@ -187,6 +187,7 @@ pub fn spawn_ribbon(
 }
 
 /// Per frame: places nodes, commits and expires edges, applies gravity and writes the strips.
+#[allow(clippy::type_complexity)] // disjoint world and standalone booth camera inputs
 pub(crate) fn simulate_ribbons(
     time: Res<Time>,
     mut commands: Commands,
@@ -199,6 +200,10 @@ pub(crate) fn simulate_ribbons(
     model_alphas: crate::model_fade::ModelAlphas,
     // World lane only: a booth-parked owner's strip is cut by the shader's far-clip wall.
     world_cam: Query<(Entity, &GlobalTransform, &Frustum, &Projection), With<WorldCamera>>,
+    #[cfg(feature = "companion")] booth_cams: Query<
+        (Entity, &GlobalTransform, &Frustum, &Projection, &Camera),
+        (With<Camera3d>, Without<WorldCamera>, Without<RibbonTrail>),
+    >,
     interleave: crate::particles::WaterInterleave,
     // The draw-set gate's scene inputs, the same bundle `simulate_particles` reads.
     gates: crate::particles::sim::SceneGates,
@@ -216,8 +221,20 @@ pub(crate) fn simulate_ribbons(
     >,
 ) {
     *verdict = RibbonVerdict::default();
+    #[cfg(not(feature = "companion"))]
     let Ok((cam, cam_tf, frustum, projection)) = world_cam.single() else {
         return;
+    };
+    #[cfg(feature = "companion")]
+    let (cam, cam_tf, frustum, projection) = match world_cam.single() {
+        Ok(view) => view,
+        Err(_) => {
+            let Some((entity, tf, f, p, _)) = booth_cams.iter().find(|(_, _, _, _, c)| c.is_active)
+            else {
+                return;
+            };
+            (entity, tf, f, p)
+        }
     };
     let cam_pos = cam_tf.translation();
     // The owner mesh's far-clip axis, so a trail crosses the wall with its model.

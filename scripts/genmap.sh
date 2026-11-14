@@ -57,7 +57,7 @@ field() { grep -m1 "^$2" "$1" 2>/dev/null | sed -E "s/^$2[[:space:]]*=[[:space:]
     [ -f "$lib" ] || continue
     crate=$(echo "$lib" | sed -E 's@crates/([^/]+)/.*@\1@')
     mods=$(grep -E '^[[:space:]]*(pub(\([a-z]+\))? )?mod [a-z_0-9]+;' "$lib" \
-      | sed -E 's/.*mod ([a-z_0-9]+);.*/\1/' | sort | tr '\n' ' ')
+      | sed -E 's/.*mod ([a-z_0-9]+);.*/\1/' | sort | tr '\n' ' ' | sed 's/ *$//')
     [ -n "$mods" ] && echo "- **$crate** ($(basename "$lib")): $mods"
   done
   echo

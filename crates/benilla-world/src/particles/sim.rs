@@ -410,7 +410,7 @@ pub(super) fn simulate_particles(
         Without<WorldCamera>,
     >,
     // Booth cameras: a booth-layered emitter faces its own, matched by layer.
-    booth_cams: Query<
+    #[cfg(not(feature = "companion"))] booth_cams: Query<
         (
             Entity,
             &GlobalTransform,
@@ -425,24 +425,70 @@ pub(super) fn simulate_particles(
             Without<ChildDraw>,
         ),
     >,
+    #[cfg(feature = "companion")] booth_cams: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &RenderLayers,
+            &Camera,
+            Has<super::ViewThrottled>,
+            &Frustum,
+            &Projection,
+        ),
+        (
+            With<Camera3d>,
+            Without<WorldCamera>,
+            Without<ParticleEmitter>,
+            Without<ChildDraw>,
+        ),
+    >,
     // A hosted emitter's sequence: its host's live `AnimationPlayer` slot and clip time.
     hosts: Query<(&AnimationPlayer, &benilla_assets::ModelAnimations)>,
     mut dumps: super::dumps::Dumps,
 ) {
+    #[cfg(not(feature = "companion"))]
     let Ok((world_cam, cam_tf, frustum, camera, projection, cam_local)) = cam.single() else {
         return;
     };
+    // A standalone character pane has no world camera or map streamer. Its active
+    // booth is the simulation authority as well as the particle draw target.
+    #[cfg(feature = "companion")]
+    let world_selection = cam.single().ok();
+    #[cfg(feature = "companion")]
+    let world_motion_still = world_selection
+        .as_ref()
+        .is_some_and(|(_, tf, _, _, p, local)| {
+            !tf.is_changed() && !p.is_changed() && !local.as_ref().is_some_and(|l| l.is_changed())
+        });
+    #[cfg(feature = "companion")]
+    let (world_cam, cam_tf, frustum, camera, projection) =
+        if let Some((entity, tf, f, c, p, _)) = world_selection.as_ref() {
+            (*entity, &**tf, *f, *c, &**p)
+        } else {
+            let Some((entity, tf, _, c, _, f, p)) =
+                booth_cams.iter().find(|(_, _, _, c, ..)| c.is_active)
+            else {
+                return;
+            };
+            (entity, tf, f, c, p)
+        };
     // Clamped so a load hitch cannot fling every particle out in one step.
     let dt = time.delta_secs().min(0.1);
     if dt <= 0.0 {
         return;
     }
     // No draw-set input moved: a gated emitter's verdict stands, and its tests can be skipped.
+    #[cfg(not(feature = "companion"))]
     let gate_inputs_still = !cam_tf.is_changed()
         && !projection.is_changed()
         && !cam_local.as_ref().is_some_and(|l| l.is_changed())
         && !gates.changed()
         && !interleave.surfaces_changed();
+    #[cfg(feature = "companion")]
+    let gate_inputs_still =
+        world_motion_still && !gates.changed() && !interleave.surfaces_changed();
+    #[cfg(not(feature = "companion"))]
+    let (cam_tf, projection) = (&*cam_tf, &*projection);
     let cam_pos = cam_tf.translation();
     let density = tuning.density.clamp(0.25, 1.0);
     let snap_filter = crate::collision::WorldCollision::body_filter();
@@ -452,7 +498,7 @@ pub(super) fn simulate_particles(
     // The far-clip axis the owner doodad's own cull uses, so the two cross the wall together.
     let cam_fwd = Vec3::from(cam_tf.forward());
     // Built once per walk, the same values the model visibility gate uses.
-    let (farclip, exterior_gate, camera_instance) = gates.scene(Some((&*cam_tf, &*projection)));
+    let (farclip, exterior_gate, camera_instance) = gates.scene(Some((cam_tf, projection)));
     let dump_frame = dumps.depth_frame(time.elapsed_secs());
     let emit_dump = dumps.emit.due(time.elapsed_secs());
 
@@ -475,7 +521,7 @@ pub(super) fn simulate_particles(
         let is_booth = booth.is_some();
         // A frozen scene holds pool and age, pushes no quads, and hides model instances once.
         if scene_frozen(
-            booth.map(|(_, _, _, c, throttled)| (c.is_active, throttled)),
+            booth.map(|(_, _, _, c, throttled, ..)| (c.is_active, throttled)),
             emitter.frozen,
             emitter.draining,
         ) {
@@ -1015,9 +1061,9 @@ pub(super) fn simulate_particles(
                     // The world point: `emitter_world` is in the stored frame.
                     ride.to_world(emitter_world),
                     &cam,
-                    &cam_tf,
+                    cam_tf,
                     camera,
-                    &projection,
+                    projection,
                     images.contains(&*texture),
                     &quads.verts[start as usize..],
                 );

@@ -27,7 +27,7 @@ use bevy::input::mouse::{
 };
 use bevy::math::DVec2;
 use bevy::prelude::*;
-use bevy::window::{CursorLeft, CursorMoved, PrimaryWindow, WindowEvent};
+use bevy::window::{CursorLeft, CursorMoved, Ime, PrimaryWindow, WindowEvent};
 
 use super::LoadingScreen;
 
@@ -91,6 +91,7 @@ struct RawInput<'w> {
     moved: ResMut<'w, Messages<CursorMoved>>,
     /// The window's stream, the input records' source (`crate::ui_script::InputRecords`).
     window: Option<ResMut<'w, Messages<WindowEvent>>>,
+    ime: Option<ResMut<'w, Messages<Ime>>>,
 }
 
 impl RawInput<'_> {
@@ -100,6 +101,9 @@ impl RawInput<'_> {
         self.motion.clear();
         self.wheel.clear();
         self.moved.clear();
+        if let Some(ime) = self.ime.as_mut() {
+            ime.clear();
+        }
         if let Some(window) = self.window.as_mut() {
             window.clear();
         }
@@ -269,6 +273,7 @@ mod tests {
                 .in_set(CoverInput)
                 .after(bevy::input::InputSystems),
         );
+        app.add_message::<Ime>().add_message::<WindowEvent>();
         let window = app
             .world_mut()
             .spawn((
@@ -310,6 +315,12 @@ mod tests {
         );
 
         app.world_mut().resource_mut::<LoadingScreen>().active = true;
+        let ime = Ime::Commit {
+            window,
+            value: "测试".into(),
+        };
+        app.world_mut().write_message(ime.clone());
+        app.world_mut().write_message(WindowEvent::Ime(ime));
         app.world_mut().write_message(KeyboardInput {
             key_code: KeyCode::Space,
             logical_key: Key::Space,
@@ -320,6 +331,8 @@ mod tests {
         });
         app.update();
 
+        assert!(app.world().resource::<Messages<Ime>>().is_empty());
+        assert!(app.world().resource::<Messages<WindowEvent>>().is_empty());
         assert!(
             seen(&app).is_none(),
             "the pointer is not in the window while the cover is up — the one fact every \

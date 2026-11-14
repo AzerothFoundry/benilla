@@ -1046,6 +1046,11 @@ fn an_authentication_behind_the_abandon_generation_is_dropped() {
     let (mut app, _rx, abandon) = stock_app();
     abandon.store(1, Ordering::SeqCst);
     let auth = |generation| WorldAuthMessage {
+        billing: benilla_protocol::messages::Billing {
+            time_remaining: 100 + generation as u32,
+            plan_flags: 2,
+            time_rested: 60,
+        },
         realm: realm("Fake"),
         epoch: 1,
         generation,
@@ -1053,9 +1058,11 @@ fn an_authentication_behind_the_abandon_generation_is_dropped() {
     app.world_mut().write_message(auth(0));
     app.update();
     assert!(!mgr(&app).connected);
+    assert_eq!(mgr(&app).billing.time_remaining, 0);
     app.world_mut().write_message(auth(1));
     app.update();
     assert!(mgr(&app).connected);
+    assert_eq!(mgr(&app).billing.time_remaining, 101);
 }
 
 /// With no world link `0x5aabb0` fails the query `RESPONSE_FAILED_TO_CONNECT` at once, and the
@@ -2469,6 +2476,63 @@ fn a_call_before_the_seat_runs_on_the_seating_frame() {
 
 // ── The stock screens over the login engine, end to end ─────────────────────────────────────────
 
+/// Authentication seeds billing before the locale-gated character-screen code runs.
+#[test]
+fn authenticated_billing_is_available_to_the_stock_character_screen() {
+    let _ = benilla_formats::wow_data_or_skip!();
+    let (mut app, _rx, _) = stock_app();
+    app.world_mut().write_message(WorldAuthMessage {
+        billing: benilla_protocol::messages::Billing {
+            time_remaining: 120,
+            plan_flags: 0x28,
+            time_rested: 60,
+        },
+        realm: realm("Billing test"),
+        epoch: 1,
+        generation: 0,
+    });
+    app.update();
+    assert_eq!(
+        vm(&app)
+            .eval::<(u32, u32, u32)>("return GetBillingPlan()")
+            .unwrap(),
+        (3, 1, 1)
+    );
+    assert_eq!(
+        vm(&app)
+            .eval::<u32>("return GetBillingTimeRemaining()")
+            .unwrap(),
+        120
+    );
+    // Exercise the actual installed Lua, including the locale-gated branch, without AddOns.
+    vm(&app)
+        .run("SHOW_GAMEROOM_BILLING_FRAME = 1; CharacterSelect_OnShow()")
+        .unwrap();
+    app.world_mut().write_message(WorldAuthMessage {
+        billing: benilla_protocol::messages::Billing {
+            time_remaining: 900,
+            plan_flags: 2,
+            time_rested: 99,
+        },
+        realm: realm("Next billing session"),
+        epoch: 2,
+        generation: 0,
+    });
+    app.update();
+    assert_eq!(
+        vm(&app)
+            .eval::<(u32, u32, u32)>("return GetBillingPlan()")
+            .unwrap(),
+        (1, 0, 0)
+    );
+    assert_eq!(
+        vm(&app)
+            .eval::<(u32, u32)>("return GetBillingTimeRemaining(), GetBillingTimeRested()")
+            .unwrap(),
+        (0, 99)
+    );
+}
+
 /// An app with the manager, the login engine's glue asks and the stock glue VM on the login
 /// screen. Returns it, the credentials channel and the abandon generation.
 fn stock_app() -> (
@@ -3054,11 +3118,13 @@ fn pump(
                 });
             }
             E::WorldAuthenticated {
+                billing,
                 realm,
                 epoch,
                 generation,
             } => {
                 auths.write(WorldAuthMessage {
+                    billing,
                     realm,
                     epoch,
                     generation,

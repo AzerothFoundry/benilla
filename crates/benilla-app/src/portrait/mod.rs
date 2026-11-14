@@ -2752,3 +2752,11 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "companion")]
+#[path = "../companion_booth.rs"]
+pub(crate) mod companion_booth;
+
+#[cfg(feature = "companion")]
+#[path = "../companion_selector.rs"]
+pub mod companion_selector;

@@ -32,6 +32,7 @@ const VERDICTS: &[(&str, Verdict)] = &[
     ("CursorMoved", Swallowed),
     // The stream the input records are read from, in the window's order.
     ("WindowEvent", Swallowed),
+    ("Ime",Swallowed),
     ("AccumulatedMouseMotion", Swallowed),
     ("AccumulatedMouseScroll", Swallowed),
     // The pointer position is a field, not a message; the cover blanks it.
@@ -109,6 +110,13 @@ const VERDICTS: &[(&str, Verdict)] = &[
     ("WindowPlugin", Plumbing),
     ("WindowPosition", Plumbing),
     ("WindowResolution", Plumbing),
+    ("CompositeAlphaMode",Plumbing),
+    ("WindowRef",Plumbing),
+    ("EventLoopProxyWrapper",Plumbing),
+    ("WinitSettings",Plumbing),
+    ("UpdateMode",Plumbing),
+    ("RequestRedraw",Plumbing),
+    ("WinitUserEvent",Open("standalone render-loop wake only, not a gameplay action or text input")),
 ];
 
 /// The gate's source, which every `Swallowed` row must name.

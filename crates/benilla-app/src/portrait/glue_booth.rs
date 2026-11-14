@@ -11,6 +11,30 @@ use bevy::camera::{OrthographicProjection, PerspectiveProjection};
 use bevy::prelude::*;
 use bevy::render::render_resource::Extent3d;
 use bevy::window::PrimaryWindow;
+#[cfg(feature = "companion")]
+type GlueWindowFilter = Or<(
+    With<PrimaryWindow>,
+    With<super::companion_selector::CompanionSelectorWindow>,
+)>;
+#[cfg(not(feature = "companion"))]
+type GlueWindowFilter = With<PrimaryWindow>;
+
+// The companion crops an empty, authored landscape stage into a portrait window.
+// Expanding its camera vertically can expose geometry beyond the old sky mesh.
+fn glue_window_pixels(window: &Window) -> UVec2 {
+    #[cfg(feature = "companion")]
+    if window.title == "选择角色" {
+        return UVec2::new(1920, 1080);
+    }
+    UVec2::new(window.physical_width(), window.physical_height()).max(UVec2::ONE)
+}
+fn glue_window_aspect(window: &Window) -> f32 {
+    #[cfg(feature = "companion")]
+    if window.title == "选择角色" {
+        return 16. / 9.;
+    }
+    window.width() / window.height().max(1.)
+}
 
 use crate::entities::Creatures;
 use benilla_assets::materials::WowModelMaterial;
@@ -879,7 +903,7 @@ pub(super) fn sync_glue_scene(
     mut images: ResMut<Assets<Image>>,
     anim_data: Option<Res<crate::creature_anim::AnimData>>,
     mut cams: Query<(&BoothCam, &mut Transform, &mut Projection)>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<&Window, GlueWindowFilter>,
     device: Res<bevy::render::renderer::RenderDevice>,
     queue: Res<bevy::render::renderer::RenderQueue>,
     // One tuple for the 16-SystemParam ceiling.
@@ -931,13 +955,9 @@ pub(super) fn sync_glue_scene(
 
     // The target is the window's, before the file resolves; a pane is a viewport inside it
     // ([`pillarbox_glue_scene`]).
-    if let Ok(w) = window.single() {
-        resize_target(
-            &mut images,
-            &booth.target,
-            w.physical_width().max(1),
-            w.physical_height().max(1),
-        );
+    if let Some(w) = window.iter().max_by_key(|w| w.title == "选择角色") {
+        let pixels = glue_window_pixels(w);
+        resize_target(&mut images, &booth.target, pixels.x, pixels.y);
     }
 
     scene.evict(&mut commands, &preview.live);
@@ -1231,10 +1251,11 @@ pub(super) fn sync_glue_scene(
     // The installed camera owns the booth camera while the scene shows, every frame: the pane's
     // camera of the file's table, or with none the orthographic leg (`0x76ceeb` installs no
     // camera, `0x76ce80(NULL)`), never the last scene's aim.
-    let w = window.single().ok();
-    let pane = w
-        .zip(preview.pane)
-        .and_then(|(w, pane)| stock_pane_view(w.physical_width(), w.physical_height(), pane));
+    let w = window.iter().max_by_key(|w| w.title == "选择角色");
+    let pane = w.zip(preview.pane).and_then(|(w, pane)| {
+        let size = glue_window_pixels(w);
+        stock_pane_view(size.x, size.y, pane)
+    });
     let chosen = preview.camera.as_ref();
     let standing = scene.file.clone().zip(scene.handle.clone());
     let CreateScene {
@@ -1262,7 +1283,7 @@ pub(super) fn sync_glue_scene(
         return;
     };
     if let Some(cam) = cam {
-        let aspect = w.map_or(4.0 / 3.0, |w| w.width() / w.height().max(1.0));
+        let aspect = w.map_or(4.0 / 3.0, glue_window_aspect);
         let fwd = (cam.target - cam.eye).normalize_or_zero();
         let up = Quat::from_axis_angle(fwd, cam.roll) * Vec3::Y;
         // The record fov is diagonal, converted at the pane's own aspect as the reference does.
@@ -1279,7 +1300,7 @@ pub(super) fn sync_glue_scene(
         );
         aim(&mut cams, GLUE_SLOT, &rig);
     } else if let Some(w) = w.filter(|_| scene.spawned) {
-        let window_px = UVec2::new(w.physical_width(), w.physical_height()).max(UVec2::ONE);
+        let window_px = glue_window_pixels(w);
         // The projection spans the pane's raw rectangle, unclamped and unrounded, which the
         // clamped viewport then squashes (`modelview#viewport-and-clamp`).
         let rect = preview
@@ -1387,15 +1408,16 @@ fn scene_vert_fov(fov: f32, window_aspect: f32, pane: Option<super::framing::Pan
 /// window; writes only on change.
 pub(super) fn pillarbox_glue_scene(
     preview: Res<GluePreview>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<&Window, GlueWindowFilter>,
     mut cams: Query<(&BoothCam, &mut Camera)>,
 ) {
-    let Ok(w) = window.single() else {
+    let Some(w) = window.iter().max_by_key(|w| w.title == "选择角色") else {
         return;
     };
-    let full_h = w.physical_height().max(1);
+    let pixels = glue_window_pixels(w);
+    let full_h = pixels.y;
     let viewport = preview.pane.and_then(|pane| {
-        stock_pane_view(w.physical_width(), full_h, pane).map(|view| bevy::camera::Viewport {
+        stock_pane_view(pixels.x, full_h, pane).map(|view| bevy::camera::Viewport {
             physical_position: view.position,
             physical_size: view.size,
             ..default()

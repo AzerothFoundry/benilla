@@ -34,6 +34,9 @@ mod merge;
 use dress::{spawn_group, PartDress};
 pub(super) use merge::MergedFormsCache;
 mod preview;
+#[cfg(feature = "companion")]
+pub(super) use preview::build_glue_preview;
+
 pub(super) use preview::build_dressup_preview;
 pub(crate) use preview::equip_slot;
 #[cfg(test)]

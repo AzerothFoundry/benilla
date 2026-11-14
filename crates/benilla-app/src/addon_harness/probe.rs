@@ -141,6 +141,7 @@ pub fn probe_ui(steps: &[Step]) -> ProbeOutcome {
 /// A VM as the survey sizes and bounds one.
 fn fresh_vm() -> benilla_ui::mlua::Result<UiScript> {
     let mut script = UiScript::new()?;
+    script.set_locale(crate::ui_script::client_locale().index());
     script.set_instruction_budget(super::ADDON_INSTRUCTION_BUDGET);
     // A fixed `rand` seed, so two probe runs of an addon that draws at load agree.
     script.lua().srand(1);
