@@ -816,15 +816,26 @@ mod fallback_tests {
     #[test]
     fn real_state_events_reset_the_five_minute_watchdog() {
         let s = Server::new(12);
-        let p = Poller::with_timing(s.url(), calibration_timing());
+        let p = Poller::with_timing(
+            s.url(),
+            Timing {
+                calibration_interval: Duration::from_millis(250),
+                connect_timeout: Duration::from_secs(2),
+                read_timeout: Duration::from_secs(2),
+                ..timing()
+            },
+        );
         wait(|| sse_ready(&p));
         p.latest.lock().unwrap().take();
-        std::thread::sleep(Duration::from_millis(220));
+        // Establishment retries are outside this assertion. Observe multiple watchdog
+        // windows after SSE is ready, with IO slack for a parallel workspace test run.
+        let polls = s.polls.load(Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(800));
         assert!(
             p.latest.lock().unwrap().is_none(),
             "duplicate clock-only SSE frames must not cancel local dancing"
         );
-        assert_eq!(s.polls.load(Ordering::Relaxed), 1);
+        assert_eq!(s.polls.load(Ordering::Relaxed), polls);
         shutdown(p);
     }
     #[test]
