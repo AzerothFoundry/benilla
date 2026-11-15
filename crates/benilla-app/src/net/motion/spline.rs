@@ -12,8 +12,8 @@ use crate::entities::CollisionHeight;
 use crate::player::swim_enter_depth;
 
 use super::super::{ActiveMover, GuidIndex, NetEntity, ObjectStore};
-use super::facing::{heading_between, resolve_facing, smoothed};
 use super::DisplayFacing;
+use super::facing::{heading_between, resolve_facing, smoothed};
 
 /// A server-dictated path (`SMSG_MONSTER_MOVE`) in raw WoW coordinates, walked at constant speed
 /// over `duration` from `start`; present only while the unit is on it.
@@ -572,19 +572,23 @@ pub(in crate::net) fn ground_clamp_creatures(
     // extents are not built.
     capsule: Res<crate::player::PlayerCapsule>,
     mut commands: Commands,
-    mut q: Query<(
-        Entity,
-        &NetEntity,
-        Option<&Spline>,
-        &mut Transform,
-        Option<&mut GroundClamped>,
-        Has<CreatureSwimming>,
-        // HOVER and WATERWALKING both move the answer.
-        Option<&crate::net::UnitMoveModes>,
-        // [`ground_derived`]'s other Z authorities: the controller and the relay's dead-reckoning.
-        Has<crate::net::Embodied>,
-        Has<crate::net::RemoteMotion>,
-    )>,
+    // A mount child has host-local coordinates; only its host can be grounded in the world.
+    mut q: Query<
+        (
+            Entity,
+            &NetEntity,
+            Option<&Spline>,
+            &mut Transform,
+            Option<&mut GroundClamped>,
+            Has<CreatureSwimming>,
+            // HOVER and WATERWALKING both move the answer.
+            Option<&crate::net::UnitMoveModes>,
+            // [`ground_derived`]'s other Z authorities: the controller and the relay's dead-reckoning.
+            Has<crate::net::Embodied>,
+            Has<crate::net::RemoteMotion>,
+        ),
+        Without<crate::entities::mount::MountBody>,
+    >,
 ) {
     let cost = clamp_cost_enabled();
     let legacy = clamp_seat_disabled();
@@ -805,7 +809,11 @@ pub(in crate::net) fn ground_clamp_creatures(
         // cast gate saves, `moved` against `hit` how often a write changes Y; quote `ms`.
         eprintln!(
             "[clamp-cost] visited={visited} skipped={skipped} held={held} cast={cast} swept={swept} reseat={reseat} armed={armed} hit={hit_n} moved={moved} noflr={noflr} ratchet={ratchet} deepest={} worst={} ms={:.3}",
-            if deepest.is_finite() { format!("{deepest:+.2}") } else { "-".to_string() },
+            if deepest.is_finite() {
+                format!("{deepest:+.2}")
+            } else {
+                "-".to_string()
+            },
             worst.map_or_else(
                 || "-".to_string(),
                 |(d, xz, y)| format!("display={d}@({:.0},{:.0}) y={y:.2}", xz[0], xz[1])
@@ -934,7 +942,8 @@ fn creature_swim_state(marked: bool, depth: f32, boundary: f32, unit_flags: u32)
 /// Chained before [`ground_clamp_creatures`] so a fresh mark exempts the clamp the same frame.
 pub(in crate::net) fn mark_swimming_creatures(
     mut commands: Commands,
-    units: Query<SwimMarkQuery, SwimMarkGate>,
+    // A mount shares its host's swimming state; its local origin is not a world point.
+    units: Query<SwimMarkQuery, (SwimMarkGate, Without<crate::entities::mount::MountBody>)>,
     stamped: Query<Entity, With<SwimEvaluated>>,
     world: benilla_world::world_point::WorldPoint,
     epoch: Res<benilla_world::collision::ColliderEpoch>,
@@ -989,7 +998,7 @@ mod under_floor {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
-    use super::{ground_clamp_creatures, GroundClamped};
+    use super::{GroundClamped, ground_clamp_creatures};
     use crate::net::NetEntity;
     use benilla_world::collision::ColliderEpoch;
 
@@ -1064,6 +1073,38 @@ mod under_floor {
 
     fn y_of(app: &App, e: Entity) -> f32 {
         app.world().get::<Transform>(e).unwrap().translation.y
+    }
+
+    /// A mount child is a model of its unit (`0x607a00`) with a host-local `Transform`: the clamp
+    /// grounds the mounted unit and never probes the child's local origin as a world point, where
+    /// a floor just under it would sink the mount by its host's height.
+    #[test]
+    fn a_mount_child_is_never_grounded_by_its_local_origin() {
+        let (mut app, npc) = half_arrived_world();
+        // A floor under the child's local origin read as a world point, in the probe's reach.
+        floor_at(&mut app, -1.0);
+        app.update();
+        let mount = app
+            .world_mut()
+            .spawn((
+                NetEntity {
+                    kind: EntityKind::Unit,
+                    display_id: Some(1),
+                    scale: 1.0,
+                },
+                crate::entities::mount::MountBody { host: npc },
+                Transform::default(),
+                ChildOf(npc),
+            ))
+            .id();
+        clamp(&mut app);
+        assert_eq!(y_of(&app, npc), TERRAIN_Y, "the mounted unit is grounded");
+        assert_eq!(
+            y_of(&app, mount),
+            0.0,
+            "the mount stays at its unit's origin, not dropped onto a floor near (0, 0)"
+        );
+        assert!(app.world().get::<GroundClamped>(mount).is_none());
     }
 
     #[test]
@@ -1357,7 +1398,7 @@ mod tests {
 /// `Creature.cpp:517`); with any one of the three gate bits it swims.
 #[cfg(test)]
 mod swim_gate {
-    use super::{creature_swim_state, CREATURE_SWIM_EXIT_BAND};
+    use super::{CREATURE_SWIM_EXIT_BAND, creature_swim_state};
     use crate::player::swim_enter_depth;
 
     /// The Shore Strider from the DBCs: display 4945 → CreatureModelData 35 (`SeaGiant.mdx`),
@@ -1467,7 +1508,7 @@ mod server_moved_players {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
-    use super::{ground_clamp_creatures, ground_derived, CreatureSwimming, GroundClamped, Spline};
+    use super::{CreatureSwimming, GroundClamped, Spline, ground_clamp_creatures, ground_derived};
     use crate::net::{Embodied, NetEntity, RemoteMotion};
     use benilla_world::collision::ColliderEpoch;
 
@@ -1801,7 +1842,7 @@ mod inside_a_hull {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
-    use super::{ground_clamp_creatures, GroundClamped, Spline};
+    use super::{GroundClamped, Spline, ground_clamp_creatures};
     use crate::net::NetEntity;
     use benilla_world::collision::ColliderEpoch;
 
@@ -2147,7 +2188,7 @@ mod final_facing_tests {
     use bevy::prelude::*;
 
     use super::super::super::GuidIndex;
-    use super::{create_spline, monster_move_spline, sample_splines, Spline};
+    use super::{Spline, create_spline, monster_move_spline, sample_splines};
     use crate::transport::TransportRider;
 
     /// Two points along +X (orientation 0), 20 yd in 10 s.
